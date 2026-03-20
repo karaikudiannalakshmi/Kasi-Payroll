@@ -244,24 +244,57 @@ export default function Salary() {
 
 function printPayslip(emp, yearMonth) {
   const label = monthLabel(yearMonth);
-  const lines = [
-    { label: 'Monthly CTC',          value: '₹' + Number(emp.monthlySalary).toLocaleString('en-IN') },
-    { label: 'Daily Rate (÷26)',      value: '₹' + Number(emp.daily).toFixed(2) },
-    { label: 'Standard Hours / Day', value: '9 hours' },
-    { label: 'Total Effective Hours', value: Number(emp.totalEffectiveHours).toFixed(1) + ' hrs' },
-    { label: 'Effective Days',        value: emp.fullPayAlways ? 'Full Pay' : Number(emp.effectiveDays).toFixed(4) },
-    { label: 'Gross Salary',          value: '₹' + Number(emp.grossSalary).toLocaleString('en-IN'), bold: true },
-    { label: 'Advance Deduction',     value: emp.advanceDeduction > 0 ? '−₹' + Number(emp.advanceDeduction).toLocaleString('en-IN') : 'Nil', color: '#dc2626' },
-    { label: 'Loan EMI Deduction',    value: emp.loanDeduction > 0 ? '−₹' + Number(emp.loanDeduction).toLocaleString('en-IN') : 'Nil', color: '#ea580c' },
-    { label: 'NET SALARY PAYABLE',    value: '₹' + Number(emp.netPay).toLocaleString('en-IN'), bold: true, color: '#1d4ed8', large: true },
+  const inr = n => '₹' + Number(n || 0).toLocaleString('en-IN');
+
+  const salaryLines = [
+    { label: 'Monthly CTC',           value: inr(emp.monthlySalary) },
+    { label: 'Daily Rate (÷26)',       value: '₹' + Number(emp.daily).toFixed(2) },
+    { label: 'Standard Hours / Day',   value: '9 hours' },
+    { label: 'Total Effective Hours',  value: Number(emp.totalEffectiveHours).toFixed(1) + ' hrs' },
+    { label: 'Effective Days',         value: emp.fullPayAlways ? 'Full Pay' : Number(emp.effectiveDays).toFixed(4) },
+    { label: 'Gross Salary',           value: inr(emp.grossSalary), bold: true },
+    { label: 'Advance Deduction',      value: emp.advanceDeduction > 0 ? '−' + inr(emp.advanceDeduction) : 'Nil', color: '#dc2626' },
+    { label: 'Loan EMI Deduction',     value: emp.loanDeduction > 0 ? '−' + inr(emp.loanDeduction) : 'Nil', color: '#ea580c' },
+    { label: 'NET SALARY PAYABLE',     value: inr(emp.netPay), bold: true, color: '#1d4ed8', large: true },
   ];
 
-  const rows = lines.map(l => `
+  const rows = salaryLines.map(l => `
     <tr>
       <td style="padding:6px 12px;font-size:13px;color:#555;${l.bold ? 'font-weight:600;' : ''}">${l.label}</td>
       <td style="padding:6px 12px;font-size:13px;text-align:right;font-weight:${l.bold ? '700' : '500'};color:${l.color || '#111'};${l.large ? 'font-size:16px;' : ''}">${l.value}</td>
     </tr>
   `).join('');
+
+  // Build loan ledger section
+  const loans = emp._activeLoans || [];
+  const loanRows = loans.map(l => {
+    const openingBal  = Number(l.balance);
+    const emiThisMonth = Math.min(Number(l.emi), openingBal);
+    const closingBal  = Math.max(0, openingBal - emiThisMonth);
+    return `
+      <tr style="background:#fff7ed">
+        <td style="padding:5px 12px;font-size:12px;color:#555">Opening Balance</td>
+        <td style="padding:5px 12px;font-size:12px;text-align:right;color:#111">${inr(openingBal)}</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 12px;font-size:12px;color:#555">Loan Principal</td>
+        <td style="padding:5px 12px;font-size:12px;text-align:right;color:#111">${inr(l.principalAmount)}</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 12px;font-size:12px;color:#555">EMI Deducted this month</td>
+        <td style="padding:5px 12px;font-size:12px;text-align:right;color:#dc2626">−${inr(emiThisMonth)}</td>
+      </tr>
+      <tr style="border-top:1px dashed #fed7aa">
+        <td style="padding:5px 12px;font-size:12px;font-weight:600;color:#555">Closing Balance</td>
+        <td style="padding:5px 12px;font-size:12px;text-align:right;font-weight:700;color:${closingBal === 0 ? '#15803d' : '#c2410c'}">${inr(closingBal)}${closingBal === 0 ? ' ✓ Cleared' : ''}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const loanSection = loans.length > 0 ? `
+    <tr><td colspan="2" style="padding:8px 12px;font-size:11px;font-weight:600;color:#7c2d12;background:#ffedd5;letter-spacing:.5px">LOAN STATEMENT</td></tr>
+    ${loanRows}
+  ` : '';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -272,7 +305,7 @@ function printPayslip(emp, yearMonth) {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: #fff; }
     .slip { max-width: 480px; margin: 20px auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-    .header { background: linear-gradient(135deg, #c2410c, #7f1d1d); color: white; padding: 16px 20px; text-align: center; }
+    .header { background: #7f1d1d; color: white; padding: 16px 20px; text-align: center; }
     .header h1 { font-size: 16px; font-weight: 700; }
     .header p { font-size: 11px; color: #fde68a; margin-top: 2px; }
     .meta { display: flex; justify-content: space-between; padding: 10px 16px; background: #fff7ed; border-bottom: 1px solid #fed7aa; }
@@ -280,8 +313,6 @@ function printPayslip(emp, yearMonth) {
     .meta strong { color: #111; }
     table { width: 100%; border-collapse: collapse; }
     tr { border-bottom: 1px solid #f0f0f0; }
-    tr:last-child { border-bottom: none; border-top: 2px solid #e5e7eb; }
-    .divider { border-top: 1px dashed #ddd; }
     .footer { padding: 10px 16px; font-size: 10px; color: #999; text-align: center; border-top: 1px solid #eee; }
     @media print { body { margin: 0; } .slip { margin: 0; border: none; border-radius: 0; } }
   </style>
@@ -296,7 +327,10 @@ function printPayslip(emp, yearMonth) {
       <span><strong>${emp.name}</strong></span>
       <span><strong>${label}</strong></span>
     </div>
-    <table>${rows}</table>
+    <table>
+      ${rows}
+      ${loanSection}
+    </table>
     ${emp.beneId ? `<div class="footer">Bank Bene ID: ${emp.beneId}</div>` : ''}
   </div>
   <script>window.onload = function() { window.print(); }</script>
@@ -319,6 +353,7 @@ function PayslipModal({ emp, yearMonth, onClose }) {
     { label: '', value: '', hr: true },
     { label: 'Advance Deduction',      value: emp.advanceDeduction > 0 ? `−${fmt(emp.advanceDeduction)}` : 'Nil', color: 'text-red-600' },
     { label: 'Loan EMI Deduction',     value: emp.loanDeduction > 0 ? `−${fmt(emp.loanDeduction)}` : 'Nil', color: 'text-orange-600' },
+    { label: '', value: '', hr: true },
     { label: '', value: '', hr: true },
     { label: 'NET SALARY PAYABLE',     value: fmt(emp.netPay), bold: true, color: 'text-blue-700 text-base' },
   ];
@@ -354,6 +389,26 @@ function PayslipModal({ emp, yearMonth, onClose }) {
               <span className={`text-sm font-medium ${l.bold ? 'font-bold' : ''} ${l.color || ''}`}>{l.value}</span>
             </div>
           ))}
+
+          {/* Loan Ledger */}
+          {emp._activeLoans?.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-orange-200">
+              <div className="text-xs font-semibold text-orange-800 uppercase tracking-wide mb-2">Loan Statement</div>
+              {emp._activeLoans.map((l, i) => {
+                const opening = Number(l.balance);
+                const emi = Math.min(Number(l.emi), opening);
+                const closing = Math.max(0, opening - emi);
+                return (
+                  <div key={i} className="bg-orange-50 rounded-lg p-2 mb-2 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-gray-500">Opening Balance</span><span className="font-medium">{fmt(opening)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Loan Principal</span><span className="font-medium">{fmt(l.principalAmount)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">EMI Deducted</span><span className="font-medium text-red-600">−{fmt(emi)}</span></div>
+                    <div className="flex justify-between border-t border-orange-200 pt-1"><span className="font-semibold text-gray-600">Closing Balance</span><span className={`font-bold ${closing === 0 ? 'text-green-600' : 'text-orange-700'}`}>{fmt(closing)}{closing === 0 ? ' ✓' : ''}</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {emp.beneId && (
             <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
