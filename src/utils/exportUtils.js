@@ -9,18 +9,85 @@ const DEBIT_ACCOUNT = '606905019773'; // organisation's bank account
  * @param {string} yearMonth
  */
 export function exportBankUpload(rows, yearMonth) {
-  const data = rows.map(r => ({
-    'Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))': 'NFT',
-    'Debit Account no\nShould be exactly 12 digit': DEBIT_ACCOUNT,
-    'Amount (₹)\n(Should not be more than 15 digits including decimals and paise)': r.netPay,
-    'Bene ID\n(Should be pre-registered in CIB)': r.beneId || '',
-    'Remarks\n(should not be more than 30 characters)': (r.name || '').substring(0, 30),
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 18 }, { wch: 22 }, { wch: 28 }, { wch: 20 }, { wch: 32 }];
+  // Build workbook using ExcelJS-compatible XLSX approach via SheetJS
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Bank Upload');
+
+  // Header texts exactly matching bank template
+  const H_A = 'Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))';
+  const H_B = 'Debit Account no\nShould be exactly 12 digit';
+  const H_C = 'Amount (\u20B9)\n(Should not be more than 15 digits including decimals and paise)';
+  const H_D = 'Bene ID\n(Should be pre-registered in CIB)';
+  const H_E = 'Remarks\n(should not be more than 30 characters)';
+
+  // Build aoa (array of arrays) for precise control
+  const aoa = [[H_A, H_B, H_C, H_D, H_E]];
+  rows.forEach(r => {
+    aoa.push([
+      'NFT',
+      DEBIT_ACCOUNT,
+      r.netPay,                              // numeric amount
+      r.beneId ? String(r.beneId) : '',      // text bene id
+      (r.name || '').substring(0, 30),       // remarks max 30 chars
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Column widths matching original template exactly
+  ws['!cols'] = [
+    { wch: 18 },          // A - transaction type
+    { wch: 21.4 },        // B - debit account
+    { wch: 14.9 },        // C - amount
+    { wch: 25 },          // D - bene ID
+    { wch: 23.3 },        // E - remarks
+  ];
+
+  // Row 1 height = 141 (tall header matching template)
+  ws['!rows'] = [{ hpt: 141 }];
+
+  // Apply cell styles using SheetJS cell objects
+  const thin = { style: 'thin', color: { auto: 1 } };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+
+  const totalRows = aoa.length;
+  const cols = ['A', 'B', 'C', 'D', 'E'];
+
+  for (let r = 0; r < totalRows; r++) {
+    for (let c = 0; c < 5; c++) {
+      const addr = cols[c] + (r + 1);
+      if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+
+      const isHeader = r === 0;
+      const isAmountCol = c === 2;   // C - amount: numeric
+      const isBeneCol   = c === 3;   // D - bene ID: text, center
+      const isDebitCol  = c === 1;   // B - debit acct: text, center
+
+      // Set correct type
+      if (!isHeader) {
+        if (isAmountCol) {
+          ws[addr].t = 'n';  // numeric
+          ws[addr].z = '0';  // no decimal formatting
+        } else {
+          ws[addr].t = 's';  // string
+        }
+      }
+
+      ws[addr].s = {
+        border,
+        alignment: {
+          wrapText: isHeader ? true : false,
+          horizontal: (isDebitCol || isAmountCol || isBeneCol) ? 'center' : 'left',
+          vertical: 'center',
+        },
+        font: { name: 'Calibri', sz: 11 },
+      };
+    }
+  }
+
+  // Mark ranges for SheetJS
+  ws['!ref'] = 'A1:E' + totalRows;
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `BankUpload_${yearMonth}.xlsx`);
 }
 
