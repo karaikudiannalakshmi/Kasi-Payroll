@@ -1,6 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getEmployees, saveEmployee, toggleEmployee } from '../hooks/useFirebase';
 import { fmt } from '../utils/calculations';
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+    return obj;
+  }).filter(r => r.name);
+}
 
 const EMPTY = {
   name: '', salary: '', designation: '', ifsc: '', accountNo: '', beneId: '', active: true,
@@ -9,10 +20,44 @@ const EMPTY = {
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [modal, setModal]         = useState(null); // null | { emp }
+  const [modal, setModal]         = useState(null);
   const [form, setForm]           = useState(EMPTY);
   const [saving, setSaving]       = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const fileRef = useRef();
+
+  const handleImportCSV = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      let count = 0;
+      for (const row of rows) {
+        await saveEmployee({
+          name: row.name,
+          designation: row.designation || '',
+          salary: Number(row.salary) || 0,
+          ifsc: row.ifsc || '',
+          accountNo: row.accountNo || '',
+          beneId: row.beneId || '',
+          active: true,
+        });
+        count++;
+      }
+      await load();
+      setImportResult({ success: true, count });
+    } catch (err) {
+      setImportResult({ success: false, error: err.message });
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  };
 
   const load = () => getEmployees().then(e => { setEmployees(e); setLoading(false); });
   useEffect(() => { load(); }, []);
@@ -49,9 +94,26 @@ export default function Employees() {
             <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
+          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+          <button
+            className="btn-secondary"
+            onClick={() => fileRef.current.click()}
+            disabled={importing}
+          >
+            {importing ? '⏳ Importing…' : '📂 Import CSV'}
+          </button>
           <button className="btn-primary" onClick={openAdd}>+ Add Employee</button>
         </div>
       </div>
+
+      {importResult && (
+        <div className={`px-4 py-3 rounded-lg text-sm font-medium ${importResult.success ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          {importResult.success
+            ? `✅ Successfully imported ${importResult.count} employees!`
+            : `❌ Import failed: ${importResult.error}`}
+          <button className="ml-3 text-xs underline" onClick={() => setImportResult(null)}>Dismiss</button>
+        </div>
+      )}
 
       <div className="card overflow-x-auto">
         {loading ? <p className="text-sm text-gray-500">Loading…</p> : (
