@@ -29,6 +29,12 @@
 
 /* Print payslip */
 @media print {
+  /* Hide everything by default */
+  body > * { display: none !important; }
+  /* Show only the payslip modal content */
+  .payslip-print-area { display: block !important; }
+  .payslip-print-area * { display: revert !important; }
+  /* Clean up modal chrome for printing */
   .no-print { display: none !important; }
   .payslip-page { page-break-after: always; }
 }

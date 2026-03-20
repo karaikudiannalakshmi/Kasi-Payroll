@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   getEmployees, getMonthAttendance, getHolidays,
-  getAdvances, getLoans, saveSalaryRecord, getSalaryRecords,
+  getAdvances, updateAdvance, getLoans, getLoanPayments, recordLoanPayment, saveSalaryRecord, getSalaryRecords,
 } from '../hooks/useFirebase';
 import { calcEmployeeSalary, calcNetPay, currentYM, monthLabel, fmt } from '../utils/calculations';
 import { exportBankUpload, exportSalaryStatement, exportPayslips } from '../utils/exportUtils';
@@ -26,19 +26,34 @@ export default function Salary() {
         getSalaryRecords(yearMonth),
       ]);
 
+      // Check which loans already have payment recorded for this month
+      const paidLoanIds = new Set();
+      await Promise.all(
+        loans.filter(l => l.status === 'active').map(async l => {
+          const pmts = await getLoanPayments(l.id);
+          if (pmts.some(p => p.month === yearMonth)) paidLoanIds.add(l.id);
+        })
+      );
+
       const active = employees.filter(e => e.active !== false);
 
       // Advance deductions per employee this month
       const advMap = {};
+      const advIdsByEmp = {}; // track advance record ids for auto-marking
       advances.forEach(a => {
         advMap[a.empId] = (advMap[a.empId] || 0) + Number(a.amount || 0);
+        if (!advIdsByEmp[a.empId]) advIdsByEmp[a.empId] = [];
+        advIdsByEmp[a.empId].push(a.id);
       });
 
-      // Loan EMI deductions
+      // Loan EMI deductions (skip loans already paid this month)
       const loanMap = {};
-      loans.filter(l => l.status === 'active' && l.startDate <= yearMonth).forEach(l => {
+      const activeLoansByEmp = {}; // track loan ids per emp for auto-deduction
+      loans.filter(l => l.status === 'active' && l.startDate <= yearMonth && !paidLoanIds.has(l.id)).forEach(l => {
         const emi = Math.min(Number(l.emi), Number(l.balance));
         loanMap[l.empId] = (loanMap[l.empId] || 0) + emi;
+        if (!activeLoansByEmp[l.empId]) activeLoansByEmp[l.empId] = [];
+        activeLoansByEmp[l.empId].push({ ...l, emi });
       });
 
       const rows = active.map(emp => {
@@ -52,6 +67,8 @@ export default function Salary() {
         const advanceDeduction = advMap[emp.id] || 0;
         const loanDeduction    = loanMap[emp.id] || 0;
         const netPay = calcNetPay(calc.grossSalary, advanceDeduction, loanDeduction);
+        const _activeLoans = activeLoansByEmp[emp.id] || [];
+        const _advanceIds  = advIdsByEmp[emp.id] || [];
         const saved  = savedRecords[emp.id];
         return {
           ...emp,
@@ -60,6 +77,8 @@ export default function Salary() {
           advanceDeduction,
           loanDeduction,
           netPay,
+          _activeLoans,
+          _advanceIds,
           isSaved: !!saved,
         };
       });
@@ -80,10 +99,23 @@ export default function Salary() {
         loanDeduction: row.loanDeduction,
         netPay: row.netPay,
       });
+      // Auto-mark advance records as deducted
+      if (row.advanceDeduction > 0 && row._advanceIds?.length) {
+        for (const advId of row._advanceIds) {
+          await updateAdvance(advId, { deducted: true, deductedMonth: yearMonth });
+        }
+      }
+      // Auto-record loan EMI payments and update balances
+      if (row.loanDeduction > 0 && row._activeLoans) {
+        for (const loan of row._activeLoans) {
+          const newBalance = Math.max(0, loan.balance - loan.emi);
+          await recordLoanPayment(loan.id, yearMonth, loan.emi, newBalance);
+        }
+      }
     }
     setSaving(false);
     await calculate();
-    alert('Salary records saved!');
+    alert('Salary records saved! Loan EMIs auto-recorded.');
   };
 
   useEffect(() => { calculate(); }, [yearMonth]);
@@ -210,6 +242,72 @@ export default function Salary() {
   );
 }
 
+function printPayslip(emp, yearMonth) {
+  const label = monthLabel(yearMonth);
+  const lines = [
+    { label: 'Monthly CTC',          value: '₹' + Number(emp.monthlySalary).toLocaleString('en-IN') },
+    { label: 'Daily Rate (÷26)',      value: '₹' + Number(emp.daily).toFixed(2) },
+    { label: 'Standard Hours / Day', value: '9 hours' },
+    { label: 'Total Effective Hours', value: Number(emp.totalEffectiveHours).toFixed(1) + ' hrs' },
+    { label: 'Effective Days',        value: emp.fullPayAlways ? 'Full Pay' : Number(emp.effectiveDays).toFixed(4) },
+    { label: 'Gross Salary',          value: '₹' + Number(emp.grossSalary).toLocaleString('en-IN'), bold: true },
+    { label: 'Advance Deduction',     value: emp.advanceDeduction > 0 ? '−₹' + Number(emp.advanceDeduction).toLocaleString('en-IN') : 'Nil', color: '#dc2626' },
+    { label: 'Loan EMI Deduction',    value: emp.loanDeduction > 0 ? '−₹' + Number(emp.loanDeduction).toLocaleString('en-IN') : 'Nil', color: '#ea580c' },
+    { label: 'NET SALARY PAYABLE',    value: '₹' + Number(emp.netPay).toLocaleString('en-IN'), bold: true, color: '#1d4ed8', large: true },
+  ];
+
+  const rows = lines.map(l => `
+    <tr>
+      <td style="padding:6px 12px;font-size:13px;color:#555;${l.bold ? 'font-weight:600;' : ''}">${l.label}</td>
+      <td style="padding:6px 12px;font-size:13px;text-align:right;font-weight:${l.bold ? '700' : '500'};color:${l.color || '#111'};${l.large ? 'font-size:16px;' : ''}">${l.value}</td>
+    </tr>
+  `).join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Payslip - ${emp.name} - ${label}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #fff; }
+    .slip { max-width: 480px; margin: 20px auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+    .header { background: linear-gradient(135deg, #c2410c, #7f1d1d); color: white; padding: 16px 20px; text-align: center; }
+    .header h1 { font-size: 16px; font-weight: 700; }
+    .header p { font-size: 11px; color: #fde68a; margin-top: 2px; }
+    .meta { display: flex; justify-content: space-between; padding: 10px 16px; background: #fff7ed; border-bottom: 1px solid #fed7aa; }
+    .meta span { font-size: 12px; color: #555; }
+    .meta strong { color: #111; }
+    table { width: 100%; border-collapse: collapse; }
+    tr { border-bottom: 1px solid #f0f0f0; }
+    tr:last-child { border-bottom: none; border-top: 2px solid #e5e7eb; }
+    .divider { border-top: 1px dashed #ddd; }
+    .footer { padding: 10px 16px; font-size: 10px; color: #999; text-align: center; border-top: 1px solid #eee; }
+    @media print { body { margin: 0; } .slip { margin: 0; border: none; border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <div class="slip">
+    <div class="header">
+      <h1>Kasi Visvanathar Koviloor Foundation</h1>
+      <p>Varanasi Kitchen · Pay Slip</p>
+    </div>
+    <div class="meta">
+      <span><strong>${emp.name}</strong></span>
+      <span><strong>${label}</strong></span>
+    </div>
+    <table>${rows}</table>
+    ${emp.beneId ? `<div class="footer">Bank Bene ID: ${emp.beneId}</div>` : ''}
+  </div>
+  <script>window.onload = function() { window.print(); }</script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank', 'width=520,height=700');
+  w.document.write(html);
+  w.document.close();
+}
+
 function PayslipModal({ emp, yearMonth, onClose }) {
   const lines = [
     { label: 'Monthly CTC',           value: fmt(emp.monthlySalary) },
@@ -265,7 +363,7 @@ function PayslipModal({ emp, yearMonth, onClose }) {
         </div>
 
         <div className="flex gap-3 p-4 border-t border-gray-100">
-          <button onClick={() => window.print()} className="btn-secondary flex-1">🖨️ Print</button>
+          <button onClick={() => printPayslip(emp, yearMonth)} className="btn-secondary flex-1">🖨️ Print</button>
           <button onClick={onClose} className="btn-primary flex-1">Close</button>
         </div>
       </div>
