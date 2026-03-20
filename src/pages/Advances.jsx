@@ -108,7 +108,7 @@ export default function Advances() {
         ) : (
           <table className="w-full text-sm">
             <thead><tr className="border-b">
-              {['S.No', 'Employee', 'Amount', 'Date', 'Deduct Month', 'Remarks', ''].map(h => (
+              {['S.No', 'Employee', 'Amount', 'Date', 'Deduct Month', 'Remarks', 'Status', ''].map(h => (
                 <th key={h} className="th">{h}</th>
               ))}
             </tr></thead>
@@ -126,9 +126,15 @@ export default function Advances() {
                   </td>
                   <td className="td text-gray-500">{adv.remarks || '—'}</td>
                   <td className="td">
+                    {adv.deducted
+                      ? <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ Deducted</span>
+                      : <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">Pending</span>
+                    }
+                  </td>
+                  <td className="td">
                     <div className="flex gap-2">
-                      <button onClick={() => openEdit(adv)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                      <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>
+                      {!adv.deducted && <button onClick={() => openEdit(adv)} className="text-xs text-blue-600 hover:underline">Edit</button>}
+                      {!adv.deducted && <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>}
                     </div>
                   </td>
                 </tr>

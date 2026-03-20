@@ -73,6 +73,8 @@ export async function getAdvances(filters = {}) {
   let rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (filters.empId) rows = rows.filter(r => r.empId === filters.empId);
   if (filters.deductMonth) rows = rows.filter(r => r.deductMonth === filters.deductMonth);
+  // For salary calculation, skip advances already deducted
+  if (filters.deductMonth) rows = rows.filter(r => !r.deducted);
   return rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
