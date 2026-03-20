@@ -35,7 +35,27 @@ export function getRates(monthlySalary) {
  * @param {string[]} holidays   - ["01","15"] — paid holiday date strings
  * @param {string}   yearMonth  - "YYYY-MM"
  */
-export function calcEmployeeSalary(monthlySalary, hoursMap = {}, holidays = [], yearMonth) {
+/**
+ * If fullPayAlways=true, return full monthly salary regardless of attendance
+ */
+export function calcEmployeeSalary(monthlySalary, hoursMap = {}, holidays = [], yearMonth, fullPayAlways = false) {
+  if (fullPayAlways) {
+    const { hourly, daily } = getRates(monthlySalary);
+    const [yr, mo] = yearMonth.split('-').map(Number);
+    const daysInMo = new Date(yr, mo, 0).getDate();
+    const totalEffectiveHours = SALARY_DIVISOR * HOURS_PER_DAY; // 26 × 9 = 234
+    return {
+      totalEffectiveHours,
+      effectiveDays: SALARY_DIVISOR,
+      grossSalary: monthlySalary,
+      overtimeHours: 0,
+      holidayWorkedHours: 0,
+      daily,
+      hourly,
+      dayDetails: [],
+      fullPayAlways: true,
+    };
+  }
   const { hourly, daily } = getRates(monthlySalary);
   const [yr, mo] = yearMonth.split('-').map(Number);
   const daysInMonth = new Date(yr, mo, 0).getDate();

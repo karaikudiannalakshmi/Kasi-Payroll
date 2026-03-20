@@ -14,7 +14,7 @@ function parseCSV(text) {
 }
 
 const EMPTY = {
-  name: '', salary: '', designation: '', ifsc: '', accountNo: '', beneId: '', active: true,
+  name: '', salary: '', designation: '', ifsc: '', accountNo: '', beneId: '', fullPayAlways: false, active: true,
 };
 
 export default function Employees() {
@@ -146,9 +146,14 @@ export default function Employees() {
                   <td className="td text-xs font-mono">{emp.accountNo || '—'}</td>
                   <td className="td text-xs font-mono">{emp.beneId || '—'}</td>
                   <td className="td">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${emp.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {emp.active !== false ? 'Active' : 'Inactive'}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium w-fit ${emp.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {emp.active !== false ? 'Active' : 'Inactive'}
+                      </span>
+                      {emp.fullPayAlways && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-orange-100 text-orange-700">Full Pay</span>
+                      )}
+                    </div>
                   </td>
                   <td className="td">
                     <div className="flex gap-2">
@@ -200,6 +205,20 @@ export default function Employees() {
                 <div className="col-span-2">
                   <label className="text-xs font-medium text-gray-600 mb-1 block">Bank Bene ID (CIB pre-registered)</label>
                   <input className="input font-mono" value={form.beneId} onChange={e => setForm(f => ({...f, beneId: e.target.value}))} placeholder="e.g. 271214084" />
+                </div>
+                <div className="col-span-2">
+                  <label className="flex items-center gap-3 cursor-pointer bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={!!form.fullPayAlways}
+                      onChange={e => setForm(f => ({...f, fullPayAlways: e.target.checked}))}
+                      className="w-4 h-4 accent-orange-600"
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-orange-900">Always Full Pay</div>
+                      <div className="text-xs text-orange-600">Pays full monthly salary regardless of attendance (e.g. Manager)</div>
+                    </div>
+                  </label>
                 </div>
               </div>
               <div className="flex gap-3 pt-2">

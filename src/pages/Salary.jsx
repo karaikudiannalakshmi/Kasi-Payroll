@@ -47,6 +47,7 @@ export default function Salary() {
           attendance[emp.id] || {},
           holidays,
           yearMonth,
+          emp.fullPayAlways === true,
         );
         const advanceDeduction = advMap[emp.id] || 0;
         const loanDeduction    = loanMap[emp.id] || 0;
@@ -168,7 +169,9 @@ export default function Salary() {
                   <td className="td">{i + 1}</td>
                   <td className="td font-medium">{r.name}</td>
                   <td className="td">{fmt(r.monthlySalary)}</td>
-                  <td className="td">{r.effectiveDays.toFixed(2)}</td>
+                  <td className="td">
+                    {r.fullPayAlways ? <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Full Pay</span> : r.effectiveDays.toFixed(2)}
+                  </td>
                   <td className="td">{r.totalEffectiveHours.toFixed(1)}</td>
                   <td className="td font-semibold text-green-700">{fmt(r.grossSalary)}</td>
                   <td className="td text-red-600">{r.advanceDeduction > 0 ? `−${fmt(r.advanceDeduction)}` : '—'}</td>
