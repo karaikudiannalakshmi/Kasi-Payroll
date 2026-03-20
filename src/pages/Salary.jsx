@@ -64,8 +64,11 @@ export default function Salary() {
           yearMonth,
           emp.fullPayAlways === true,
         );
-        const advanceDeduction = advMap[emp.id] || 0;
-        const loanDeduction    = loanMap[emp.id] || 0;
+        // If salary already finalised, use saved deduction values
+        // (advances already marked deducted, loans already paid — don't recalc to zero)
+        const savedRec = savedRecords[emp.id];
+        const advanceDeduction = savedRec ? (savedRec.advanceDeduction || 0) : (advMap[emp.id] || 0);
+        const loanDeduction    = savedRec ? (savedRec.loanDeduction    || 0) : (loanMap[emp.id] || 0);
         const netPay = calcNetPay(calc.grossSalary, advanceDeduction, loanDeduction);
         const _activeLoans = activeLoansByEmp[emp.id] || [];
         const _advanceIds  = advIdsByEmp[emp.id] || [];
@@ -167,7 +170,7 @@ export default function Salary() {
         <div className="flex flex-wrap gap-3">
           <button onClick={() => exportBankUpload(data.map(r => ({
             name: r.name, beneId: r.beneId, netPay: r.netPay
-          })), yearMonth)} className="btn-green">
+          })), yearMonth, debitAccount)} className="btn-green">
             🏦 Export Bank Upload
           </button>
           <button onClick={() => exportSalaryStatement(data, yearMonth)} className="btn-secondary">
