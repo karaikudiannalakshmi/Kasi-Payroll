@@ -39,8 +39,8 @@ export default function Attendance() {
     XLSX.writeFile(wb, `Attendance_Template_${yearMonth}.xlsx`);
   };
 
-  // Import attendance — reads original Excel format directly
-  // Format: row1=header (S No, Name, Total Days, date1, date2...), row2+=data
+  // Import attendance from Excel
+  // Expected format: Name | 1 | 2 | 3 ... 31  (first row = header, numeric day columns)
   const handleAttImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -48,85 +48,70 @@ export default function Attendance() {
     setImportMsg(null);
     try {
       const buffer = await file.arrayBuffer();
-      // Read as array of arrays (header:1) to get raw row data with column indices
-      const wb = XLSX.read(buffer, { cellDates: false, raw: true });
+      const wb = XLSX.read(buffer, { raw: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
+      // Read as array of arrays — most reliable approach
       const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-      if (allRows.length < 2) { setImportMsg({ ok: false, msg: 'No data found.' }); return; }
-
-      // Find the header row — the one containing "Name" or date-like values
-      // Skip blank/title rows at top
-      let headerRowIdx = 0;
-      for (let i = 0; i < Math.min(5, allRows.length); i++) {
-        const row = allRows[i];
-        const hasName = row.some(c => String(c).toLowerCase().includes('name'));
-        const hasDate = row.some(c => typeof c === 'number' && c > 40000); // Excel date serial
-        if (hasName || hasDate) { headerRowIdx = i; break; }
+      if (allRows.length < 2) {
+        setImportMsg({ ok: false, msg: 'No data found in file.' });
+        return;
       }
 
-      const headerRow = allRows[headerRowIdx];
-      const [yr, mo]  = yearMonth.split('-').map(Number);
-      const totalD    = daysInMonth(yearMonth);
+      // Find header row (contains "Name" or "name")
+      let hdrIdx = 0;
+      for (let i = 0; i < Math.min(5, allRows.length); i++) {
+        if (allRows[i].some(c => String(c).toLowerCase().trim() === 'name')) {
+          hdrIdx = i; break;
+        }
+      }
+      const hdrRow = allRows[hdrIdx];
 
-      // Map column index → day number (1-31)
-      // Excel stores dates as serial numbers (days since 1900-01-01)
-      const colToDayMap = {};
-      let nameColIdx = -1;
+      // Find name column index
+      const nameIdx = hdrRow.findIndex(c => String(c).toLowerCase().trim() === 'name');
+      if (nameIdx === -1) {
+        setImportMsg({ ok: false, msg: 'Cannot find "Name" column in file.' });
+        return;
+      }
 
-      headerRow.forEach((cell, idx) => {
-        const cellStr = String(cell).toLowerCase().trim();
-        if (cellStr === 'name') { nameColIdx = idx; return; }
+      // Map column index → day number
+      // Supports: numeric 1-31, or zero-padded "01"-"31"
+      const [yr, mo] = yearMonth.split('-').map(Number);
+      const totalD = daysInMonth(yearMonth);
+      const colDayMap = {};
 
-        // Excel date serial number
-        if (typeof cell === 'number' && cell > 40000) {
-          // Convert Excel serial to JS date
-          const d = new Date(Math.round((cell - 25569) * 86400 * 1000));
-          if (d.getFullYear() === yr && d.getMonth() + 1 === mo) {
-            colToDayMap[idx] = d.getDate();
-          }
+      hdrRow.forEach((cell, idx) => {
+        if (idx === nameIdx) return;
+        const n = Number(cell);
+        if (!isNaN(n) && n >= 1 && n <= 31) {
+          colDayMap[idx] = n;
           return;
         }
-        // Already a string date like "2026-03-01"
-        if (typeof cell === 'string' && cell.includes(String(yr))) {
-          const d = new Date(cell);
-          if (!isNaN(d) && d.getMonth() + 1 === mo) {
-            colToDayMap[idx] = d.getDate();
+        // Also handle Excel date serials
+        if (typeof cell === 'number' && cell > 40000) {
+          const jsDate = new Date(Math.round((cell - 25569) * 86400 * 1000));
+          if (jsDate.getFullYear() === yr && jsDate.getMonth() + 1 === mo) {
+            colDayMap[idx] = jsDate.getDate();
           }
         }
       });
-
-      // If no date columns found, try numeric columns (1,2,3...)
-      if (Object.keys(colToDayMap).length === 0) {
-        headerRow.forEach((cell, idx) => {
-          const n = Number(cell);
-          if (!isNaN(n) && n >= 1 && n <= 31) colToDayMap[idx] = n;
-        });
-      }
-
-      // If nameColIdx not found, assume column 1 (index 1) is Name (S No format)
-      if (nameColIdx === -1) {
-        headerRow.forEach((cell, idx) => {
-          if (String(cell).toLowerCase().includes('name')) nameColIdx = idx;
-        });
-        if (nameColIdx === -1) nameColIdx = 1;
-      }
 
       // Build name→empId map
       const nameMap = {};
       employees.forEach(emp => { nameMap[emp.name.trim().toLowerCase()] = emp.id; });
 
       let saved = 0, skipped = 0;
-      for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+      for (let i = hdrIdx + 1; i < allRows.length; i++) {
         const row = allRows[i];
-        const name = String(row[nameColIdx] || '').trim();
-        if (!name || /^\d+$/.test(name)) continue;
+        const name = String(row[nameIdx] || '').trim();
+        if (!name || /^[0-9]+$/.test(name)) continue;
 
         const empId = nameMap[name.toLowerCase()];
         if (!empId) { skipped++; continue; }
 
         const hours = {};
-        Object.entries(colToDayMap).forEach(([colIdx, dayNum]) => {
+        Object.entries(colDayMap).forEach(([colIdx, dayNum]) => {
+          if (dayNum > totalD) return;
           const val = row[Number(colIdx)];
           const n = parseFloat(val);
           if (!isNaN(n) && n > 0) {
@@ -139,8 +124,10 @@ export default function Attendance() {
       }
 
       await load();
-      const mapped = Object.keys(colToDayMap).length;
-      setImportMsg({ ok: true, msg: `Imported ${saved} employees, ${mapped} day columns mapped${skipped ? `, ${skipped} names not matched` : ''}.` });
+      setImportMsg({
+        ok: true,
+        msg: `Imported ${saved} employees${skipped ? `, ${skipped} names not matched` : ''}.`
+      });
     } catch (err) {
       setImportMsg({ ok: false, msg: 'Error: ' + err.message });
     } finally {
