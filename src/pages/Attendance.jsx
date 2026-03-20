@@ -206,11 +206,9 @@ export default function Attendance() {
 
   // Fill all present (9h) for non-holiday, non-Sunday days
   const fillFullDay = (empId) => {
-    const [y, m] = yearMonth.split('-').map(Number);
     const hours = { ...(attendance[empId] || {}) };
     days.forEach(d => {
-      const dayOfWeek = new Date(y, m - 1, Number(d)).getDay();
-      if (!holidays.includes(d) && dayOfWeek !== 0) {
+      if (!holidays.includes(d)) {
         if (!hours[d]) hours[d] = 9;
       }
     });
@@ -307,14 +305,13 @@ export default function Attendance() {
                 {days.map(d => {
                   const dn = getDayName(yearMonth, Number(d));
                   const isHol = holidays.includes(d);
-                  const isSun = dn === 'Sun';
                   return (
                     <th
                       key={d}
-                      onClick={() => !isSun && toggleHoliday(d)}
+                      onClick={() => toggleHoliday(d)}
                       className={`px-1 py-1 text-center font-medium border-r border-gray-200 min-w-[44px] select-none
-                        ${isHol ? 'bg-blue-200 text-blue-800 cursor-pointer' : isSun ? 'bg-gray-100 text-gray-400' : 'text-gray-600 cursor-pointer hover:bg-orange-100'}`}
-                      title={isHol ? 'Click to remove holiday' : isSun ? 'Sunday' : 'Click to mark as paid holiday'}
+                        ${isHol ? 'bg-blue-200 text-blue-800 cursor-pointer' : 'text-gray-600 cursor-pointer hover:bg-orange-100'}`}
+                      title={isHol ? 'Click to remove holiday' : 'Click to mark as paid holiday'}
                     >
                       <div>{d}</div>
                       <div className="text-gray-400">{dn}</div>
@@ -343,26 +340,20 @@ export default function Attendance() {
 
                     {days.map(d => {
                       const isHol = holidays.includes(d);
-                      const dn = getDayName(yearMonth, Number(d));
-                      const isSun = dn === 'Sun';
                       const val = hrs[d] ?? '';
                       return (
                         <td key={d} className={`px-0.5 py-1 text-center border-r border-gray-100 att-cell ${cellClass(emp.id, d)}`}>
-                          {isSun ? (
-                            <span className="text-gray-300 text-xs block text-center">—</span>
-                          ) : (
-                            <input
-                              type="number"
-                              min={0}
-                              max={isHol ? 20 : 24}
-                              step={1}
-                              value={val === 0 ? '' : val}
-                              placeholder={isHol ? '+h' : '0'}
-                              onChange={e => setHours(emp.id, d, e.target.value)}
-                              className="w-11 h-7 text-center text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-400 bg-transparent"
-                              title={isHol ? 'Extra hours worked on holiday (base 9h auto-credited)' : 'Hours worked (9 = full day)'}
-                            />
-                          )}
+                          <input
+                            type="number"
+                            min={0}
+                            max={isHol ? 20 : 24}
+                            step={1}
+                            value={val === 0 ? '' : val}
+                            placeholder={isHol ? '+h' : '0'}
+                            onChange={e => setHours(emp.id, d, e.target.value)}
+                            className="w-11 h-7 text-center text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-400 bg-transparent"
+                            title={isHol ? 'Extra hours worked on holiday (base 9h auto-credited)' : 'Hours worked (9 = full day)'}
+                          />
                         </td>
                       );
                     })}
