@@ -3,14 +3,14 @@ import { getEmployees, saveEmployee, toggleEmployee } from '../hooks/useFirebase
 import { fmt } from '../utils/calculations';
 
 function parseCSV(text) {
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim());
+  const lines = text.trim().split(/\r?\n/);
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^\uFEFF/, ''));
   return lines.slice(1).map(line => {
     const vals = line.split(',').map(v => v.trim());
     const obj = {};
     headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
     return obj;
-  }).filter(r => r.name);
+  }).filter(r => r.name && r.name.trim());
 }
 
 const EMPTY = {
@@ -28,6 +28,9 @@ export default function Employees() {
   const [importResult, setImportResult] = useState(null);
   const fileRef = useRef();
 
+  const load = () => getEmployees().then(e => { setEmployees(e); setLoading(false); });
+  useEffect(() => { load(); }, []);
+
   const handleImportCSV = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -36,15 +39,19 @@ export default function Employees() {
     try {
       const text = await file.text();
       const rows = parseCSV(text);
+      if (rows.length === 0) {
+        setImportResult({ success: false, error: 'No valid rows found in CSV. Check the file format.' });
+        return;
+      }
       let count = 0;
       for (const row of rows) {
         await saveEmployee({
-          name: row.name,
-          designation: row.designation || '',
+          name: row.name.trim(),
+          designation: (row.designation || '').trim(),
           salary: Number(row.salary) || 0,
-          ifsc: row.ifsc || '',
-          accountNo: row.accountNo || '',
-          beneId: row.beneId || '',
+          ifsc: (row.ifsc || '').trim(),
+          accountNo: (row.accountNo || '').trim(),
+          beneId: (row.beneId || '').trim(),
           active: true,
         });
         count++;
@@ -58,9 +65,6 @@ export default function Employees() {
       e.target.value = '';
     }
   };
-
-  const load = () => getEmployees().then(e => { setEmployees(e); setLoading(false); });
-  useEffect(() => { load(); }, []);
 
   const openAdd  = () => { setForm(EMPTY); setModal({ emp: null }); };
   const openEdit = (emp) => { setForm({ ...emp }); setModal({ emp }); };
