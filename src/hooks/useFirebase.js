@@ -8,8 +8,12 @@ import {
 export const employeesRef = () => collection(db, 'employees');
 
 export async function getEmployees() {
-  const snap = await getDocs(query(employeesRef(), orderBy('name')));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(query(employeesRef(), orderBy('sortOrder', 'asc')));
+  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (rows.length && rows[0].sortOrder == null) {
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return rows;
 }
 
 export async function saveEmployee(emp) {
@@ -18,6 +22,11 @@ export async function saveEmployee(emp) {
     await updateDoc(doc(db, 'employees', id), { ...rest, updatedAt: serverTimestamp() });
     return emp.id;
   } else {
+    // assign sortOrder = current count + 1 if not provided
+    if (emp.sortOrder == null) {
+      const snap = await getDocs(employeesRef());
+      emp.sortOrder = snap.size + 1;
+    }
     const ref = await addDoc(employeesRef(), { ...emp, active: true, createdAt: serverTimestamp() });
     return ref.id;
   }
@@ -25,6 +34,12 @@ export async function saveEmployee(emp) {
 
 export async function toggleEmployee(id, active) {
   await updateDoc(doc(db, 'employees', id), { active });
+}
+
+export async function deleteAllEmployees() {
+  const snap = await getDocs(employeesRef());
+  const deletes = snap.docs.map(d => deleteDoc(doc(db, 'employees', d.id)));
+  await Promise.all(deletes);
 }
 
 // ── Attendance ────────────────────────────────────────────────────────────────

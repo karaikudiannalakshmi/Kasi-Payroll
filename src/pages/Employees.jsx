@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { getEmployees, saveEmployee, toggleEmployee } from '../hooks/useFirebase';
+import { getEmployees, saveEmployee, toggleEmployee, deleteAllEmployees } from '../hooks/useFirebase';
 import { fmt } from '../utils/calculations';
 
 function parseCSV(text) {
@@ -34,6 +34,10 @@ export default function Employees() {
   const handleImportCSV = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!window.confirm('This will DELETE all existing employees and reimport from CSV. Continue?')) {
+      e.target.value = '';
+      return;
+    }
     setImporting(true);
     setImportResult(null);
     try {
@@ -43,6 +47,9 @@ export default function Employees() {
         setImportResult({ success: false, error: 'No valid rows found in CSV. Check the file format.' });
         return;
       }
+      // delete all existing employees first
+      await deleteAllEmployees();
+      // reimport fresh with correct sortOrder
       let count = 0;
       for (const row of rows) {
         await saveEmployee({
@@ -52,6 +59,7 @@ export default function Employees() {
           ifsc: (row.ifsc || '').trim(),
           accountNo: (row.accountNo || '').trim(),
           beneId: (row.beneId || '').trim(),
+          sortOrder: count + 1,
           active: true,
         });
         count++;
