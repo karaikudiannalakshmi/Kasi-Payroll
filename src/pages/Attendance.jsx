@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getEmployees, getMonthAttendance, saveEmployeeAttendance, getHolidays, saveHolidays } from '../hooks/useFirebase';
 import { currentYM, daysInMonth, monthLabel } from '../utils/calculations';
+import * as XLSX from 'xlsx';
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -18,6 +19,74 @@ export default function Attendance() {
   const [saving, setSaving]         = useState({}); // { empId: bool }
   const [unsaved, setUnsaved]       = useState({}); // { empId: bool }
   const [savingHolidays, setSavingHolidays] = useState(false);
+  const [importing, setImporting]         = useState(false);
+  const [importMsg, setImportMsg]         = useState(null);
+  const attFileRef = useRef();
+
+  // Download blank template for current month
+  const downloadTemplate = () => {
+    const totalD = daysInMonth(yearMonth);
+    const dayHeaders = Array.from({ length: totalD }, (_, i) => String(i + 1).padStart(2, '0'));
+    const rows = employees.map(emp => {
+      const row = { Name: emp.name };
+      dayHeaders.forEach(d => { row[d] = ''; });
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 24 }, ...dayHeaders.map(() => ({ wch: 5 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+    XLSX.writeFile(wb, `Attendance_Template_${yearMonth}.xlsx`);
+  };
+
+  // Import attendance from Excel/CSV
+  const handleAttImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!rows.length) { setImportMsg({ ok: false, msg: 'No data found in file.' }); return; }
+
+      // build name→empId map
+      const nameMap = {};
+      employees.forEach(emp => { nameMap[emp.name.trim().toLowerCase()] = emp.id; });
+
+      const totalD = daysInMonth(yearMonth);
+      const dayKeys = Array.from({ length: totalD }, (_, i) => String(i + 1).padStart(2, '0'));
+
+      let saved = 0, skipped = 0;
+      for (const row of rows) {
+        const name = (row['Name'] || row['name'] || '').toString().trim();
+        if (!name) continue;
+        const empId = nameMap[name.toLowerCase()];
+        if (!empId) { skipped++; continue; }
+
+        const hours = {};
+        dayKeys.forEach(d => {
+          // accept both "01" and "1" as column headers
+          const val = row[d] ?? row[String(Number(d))] ?? '';
+          const n = parseFloat(val);
+          if (!isNaN(n) && n > 0) hours[d] = n;
+        });
+
+        await saveEmployeeAttendance(yearMonth, empId, hours);
+        saved++;
+      }
+      await load();
+      setImportMsg({ ok: true, msg: `Imported ${saved} employees${skipped ? `, ${skipped} names not matched` : ''}.` });
+    } catch (err) {
+      setImportMsg({ ok: false, msg: 'Error: ' + err.message });
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  };
 
   const totalDays = daysInMonth(yearMonth);
   const days = Array.from({ length: totalDays }, (_, i) => String(i + 1).padStart(2, '0'));
@@ -123,10 +192,26 @@ export default function Attendance() {
           className="input w-40"
         />
         <span className="text-sm text-gray-500">{monthLabel(yearMonth)}</span>
+        <div className="flex gap-2 ml-auto">
+          <button onClick={downloadTemplate} disabled={!employees.length} className="btn-secondary text-xs">
+            📥 Download Template
+          </button>
+          <input ref={attFileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={handleAttImport} />
+          <button onClick={() => attFileRef.current.click()} disabled={importing} className="btn-primary text-xs">
+            {importing ? '⏳ Importing…' : '📂 Import Attendance'}
+          </button>
+        </div>
         {anyUnsaved && (
-          <button className="btn-primary ml-auto" onClick={saveAll}>💾 Save All Changes</button>
+          <button className="btn-primary" onClick={saveAll}>💾 Save All Changes</button>
         )}
       </div>
+
+      {importMsg && (
+        <div className={`px-4 py-2 rounded-lg text-sm font-medium ${importMsg.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          {importMsg.ok ? '✅' : '❌'} {importMsg.msg}
+          <button className="ml-3 text-xs underline" onClick={() => setImportMsg(null)}>Dismiss</button>
+        </div>
+      )}
 
       {/* Legend + Holiday Controls */}
       <div className="card space-y-2">
