@@ -8,7 +8,8 @@ const DEBIT_ACCOUNT = '606905019773'; // organisation's bank account
  * @param {Array} rows - [{name, beneId, netPay}]
  * @param {string} yearMonth
  */
-export function exportBankUpload(rows, yearMonth) {
+export function exportBankUpload(rows, yearMonth, debitAccountOverride) {
+  const ACCOUNT = debitAccountOverride || DEBIT_ACCOUNT;
   // Build workbook using ExcelJS-compatible XLSX approach via SheetJS
   const wb = XLSX.utils.book_new();
 
@@ -24,7 +25,7 @@ export function exportBankUpload(rows, yearMonth) {
   rows.forEach(r => {
     aoa.push([
       'NFT',
-      DEBIT_ACCOUNT,
+      ACCOUNT,
       r.netPay,                              // numeric amount
       r.beneId ? String(r.beneId) : '',      // text bene id
       (r.name || '').substring(0, 30),       // remarks max 30 chars
@@ -62,13 +63,16 @@ export function exportBankUpload(rows, yearMonth) {
       const isBeneCol   = c === 3;   // D - bene ID: text, center
       const isDebitCol  = c === 1;   // B - debit acct: text, center
 
-      // Set correct type
+      // Set correct type - only amount column (C) is numeric, all others are TEXT
       if (!isHeader) {
         if (isAmountCol) {
           ws[addr].t = 'n';  // numeric
-          ws[addr].z = '0';  // no decimal formatting
+          ws[addr].z = '0';  // integer, no decimals
         } else {
-          ws[addr].t = 's';  // string
+          // Force text for A, B, D, E
+          const v = ws[addr].v;
+          ws[addr].t = 's';
+          ws[addr].v = String(v ?? '');
         }
       }
 
