@@ -26,7 +26,7 @@ export default function Attendance() {
   // Download blank template for current month
   const downloadTemplate = () => {
     const totalD = daysInMonth(yearMonth);
-    const dayHeaders = Array.from({ length: totalD }, (_, i) => String(i + 1).padStart(2, '0'));
+    const dayHeaders = Array.from({ length: totalD }, (_, i) => i + 1); // numeric: 1,2,3...
     const rows = employees.map(emp => {
       const row = { Name: emp.name };
       dayHeaders.forEach(d => { row[d] = ''; });
@@ -40,6 +40,9 @@ export default function Attendance() {
   };
 
   // Import attendance from Excel/CSV
+  // Supports two formats:
+  // 1. Original format: S No | Name | Total Days | 2026-03-01 | 2026-03-02 | ...
+  // 2. Simple format:   Name | 1 | 2 | 3 | ... (numeric day columns)
   const handleAttImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -47,33 +50,65 @@ export default function Attendance() {
     setImportMsg(null);
     try {
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer);
+      const wb = XLSX.read(buffer, { cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      // Use raw mode to inspect headers first
+      const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      const rows    = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
 
       if (!rows.length) { setImportMsg({ ok: false, msg: 'No data found in file.' }); return; }
 
-      // build name→empId map
+      // build name→empId map (case-insensitive)
       const nameMap = {};
       employees.forEach(emp => { nameMap[emp.name.trim().toLowerCase()] = emp.id; });
 
+      const [yr, mo] = yearMonth.split('-').map(Number);
       const totalD = daysInMonth(yearMonth);
-      const dayKeys = Array.from({ length: totalD }, (_, i) => String(i + 1).padStart(2, '0'));
+
+      // Detect column keys for each day (1..totalD)
+      // Strategy: scan all keys in first data row, match to day number
+      const firstRow = rows[0];
+      const allKeys  = Object.keys(firstRow);
+
+      // Build dayKeyMap: day number (1-31) → actual key in row object
+      const dayKeyMap = {};
+      allKeys.forEach(k => {
+        // Format 1: date string like "3/1/2026", "2026-03-01", "Mar 1 2026"
+        const parsed = new Date(k);
+        if (!isNaN(parsed) && parsed.getFullYear() === yr && parsed.getMonth() + 1 === mo) {
+          dayKeyMap[parsed.getDate()] = k;
+          return;
+        }
+        // Format 2: numeric key like 1, 2, 3 or "1","2","3"
+        const n = Number(k);
+        if (!isNaN(n) && n >= 1 && n <= 31) {
+          dayKeyMap[n] = k;
+        }
+      });
 
       let saved = 0, skipped = 0;
       for (const row of rows) {
-        const name = (row['Name'] || row['name'] || '').toString().trim();
-        if (!name) continue;
+        // Find name column — try 'Name', 'name', column index 1 (S No format)
+        const name = (
+          row['Name'] || row['name'] ||
+          (allKeys.length > 1 ? row[allKeys[1]] : '')
+        ).toString().trim();
+
+        if (!name || name === 'Name' || /^\d+$/.test(name)) continue;
         const empId = nameMap[name.toLowerCase()];
         if (!empId) { skipped++; continue; }
 
         const hours = {};
-        dayKeys.forEach(d => {
-          // accept both "01" and "1" as column headers
-          const val = row[d] ?? row[String(Number(d))] ?? '';
+        for (let d = 1; d <= totalD; d++) {
+          const key = dayKeyMap[d];
+          if (!key) continue;
+          const val = row[key];
           const n = parseFloat(val);
-          if (!isNaN(n) && n > 0) hours[d] = n;
-        });
+          if (!isNaN(n) && n > 0) {
+            hours[String(d).padStart(2, '0')] = n;
+          }
+        }
 
         await saveEmployeeAttendance(yearMonth, empId, hours);
         saved++;
