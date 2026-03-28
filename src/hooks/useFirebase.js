@@ -67,14 +67,21 @@ export async function saveHolidays(yearMonth, paid) {
 }
 
 // ── Advances ─────────────────────────────────────────────────────────────────
+export async function getAllAdvancesForMonth(yearMonth) {
+  const snap = await getDocs(collection(db, 'advances'));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(a => a.deductMonth === yearMonth);
+}
+
 export async function getAdvances(filters = {}) {
   let q = collection(db, 'advances');
   const snap = await getDocs(q);
   let rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (filters.empId) rows = rows.filter(r => r.empId === filters.empId);
   if (filters.deductMonth) rows = rows.filter(r => r.deductMonth === filters.deductMonth);
-  // For salary calculation, skip advances already deducted
-  if (filters.deductMonth) rows = rows.filter(r => !r.deducted);
+  // Only skip deducted if NOT explicitly including them
+  if (filters.deductMonth && !filters.includeDeducted) rows = rows.filter(r => !r.deducted);
   return rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
