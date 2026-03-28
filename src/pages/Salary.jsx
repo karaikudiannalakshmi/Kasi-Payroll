@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   getEmployees, getMonthAttendance, getHolidays,
-  getAdvances, updateAdvance, getLoans, getLoanPayments, recordLoanPayment, saveSalaryRecord, getSalaryRecords,
+  getAdvances, getAllAdvancesForMonth, updateAdvance, getLoans, getLoanPayments, recordLoanPayment, saveSalaryRecord, getSalaryRecords,
 } from '../hooks/useFirebase';
 import { calcEmployeeSalary, calcNetPay, currentYM, monthLabel, fmt } from '../utils/calculations';
 import { exportBankUpload, exportSalaryStatement, exportPayslips } from '../utils/exportUtils';
@@ -26,34 +26,27 @@ export default function Salary() {
         getSalaryRecords(yearMonth),
       ]);
 
-      // Check which loans already have payment recorded for this month
-      const paidLoanIds = new Set();
-      await Promise.all(
-        loans.filter(l => l.status === 'active').map(async l => {
-          const pmts = await getLoanPayments(l.id);
-          if (pmts.some(p => p.month === yearMonth)) paidLoanIds.add(l.id);
-        })
-      );
-
       const active = employees.filter(e => e.active !== false);
 
-      // Advance deductions per employee this month
+      // ── Advances: fetch ALL for this month (pending + deducted) ───────────
+      const allAdv = await getAllAdvancesForMonth(yearMonth);
       const advMap = {};
-      const advIdsByEmp = {}; // track advance record ids for auto-marking
-      advances.forEach(a => {
+      const advIdsByEmp = {};
+      allAdv.forEach(a => {
         advMap[a.empId] = (advMap[a.empId] || 0) + Number(a.amount || 0);
         if (!advIdsByEmp[a.empId]) advIdsByEmp[a.empId] = [];
         advIdsByEmp[a.empId].push(a.id);
       });
 
-      // Loan EMI deductions (skip loans already paid this month)
+      // ── Loans ─────────────────────────────────────────────────────────────
+      // Show ALL active loans — no filtering by paid status
       const loanMap = {};
-      const activeLoansByEmp = {}; // track loan ids per emp for auto-deduction
-      loans.filter(l => l.status === 'active' && l.startDate <= yearMonth && !paidLoanIds.has(l.id)).forEach(l => {
+      const activeLoansByEmp = {};
+      loans.filter(l => l.status === 'active' && l.startDate <= yearMonth).forEach(l => {
         const emi = Math.min(Number(l.emi), Number(l.balance));
-        loanMap[l.empId] = (loanMap[l.empId] || 0) + emi;
         if (!activeLoansByEmp[l.empId]) activeLoansByEmp[l.empId] = [];
         activeLoansByEmp[l.empId].push({ ...l, emi });
+        loanMap[l.empId] = (loanMap[l.empId] || 0) + emi;
       });
 
       const rows = active.map(emp => {
@@ -64,15 +57,14 @@ export default function Salary() {
           yearMonth,
           emp.fullPayAlways === true,
         );
-        // If salary already finalised, use saved deduction values
-        // (advances already marked deducted, loans already paid — don't recalc to zero)
+
         const savedRec = savedRecords[emp.id];
-        const advanceDeduction = savedRec ? (savedRec.advanceDeduction || 0) : (advMap[emp.id] || 0);
-        const loanDeduction    = savedRec ? (savedRec.loanDeduction    || 0) : (loanMap[emp.id] || 0);
+        const advanceDeduction = advMap[emp.id] || 0;
+        const loanDeduction    = loanMap[emp.id] || 0;
         const netPay = calcNetPay(calc.grossSalary, advanceDeduction, loanDeduction);
         const _activeLoans = activeLoansByEmp[emp.id] || [];
         const _advanceIds  = advIdsByEmp[emp.id] || [];
-        const saved  = savedRecords[emp.id];
+
         return {
           ...emp,
           ...calc,
@@ -82,7 +74,7 @@ export default function Salary() {
           netPay,
           _activeLoans,
           _advanceIds,
-          isSaved: !!saved,
+          isSaved: !!savedRec,
         };
       });
 
