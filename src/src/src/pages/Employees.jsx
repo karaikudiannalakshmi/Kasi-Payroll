@@ -14,7 +14,7 @@ function parseCSV(text) {
 }
 
 const EMPTY = {
-  name: '', salary: '', designation: '', ifsc: '', accountNo: '', beneId: '', fullPayAlways: false, active: true,
+  name: '', salary: '', designation: '', ifsc: '', accountNo: '', beneId: '', customerId: '', fullPayAlways: false, active: true,
 };
 
 export default function Employees() {
@@ -27,6 +27,37 @@ export default function Employees() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const fileRef = useRef();
+  const custFileRef = useRef();
+
+  const handleCustomerIdUpdate = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const lines = text.trim().split(/\r?\n/).slice(1); // skip header
+      const existing = await getEmployees();
+      const nameMap = {};
+      existing.forEach(emp => { nameMap[emp.name.trim().toLowerCase()] = emp; });
+      let updated = 0, skipped = 0;
+      for (const line of lines) {
+        const [name, customerId] = line.split(',').map(s => s.trim());
+        if (!name || !customerId) continue;
+        const emp = nameMap[name.toLowerCase()];
+        if (!emp) { skipped++; continue; }
+        await saveEmployee({ ...emp, customerId: String(customerId), beneId: String(customerId) });
+        updated++;
+      }
+      await load();
+      setImportResult({ success: true, count: updated, msg: `Updated ${updated} Customer IDs${skipped ? `, ${skipped} names not matched` : ''}` });
+    } catch (err) {
+      setImportResult({ success: false, error: err.message });
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  };
 
   const load = () => getEmployees().then(e => { setEmployees(e); setLoading(false); });
   useEffect(() => { load(); }, []);
@@ -58,7 +89,9 @@ export default function Employees() {
           salary: Number(row.salary) || 0,
           ifsc: (row.ifsc || '').trim(),
           accountNo: (row.accountNo || '').trim(),
-          beneId: (row.beneId || '').trim(),
+          beneId: String((row.beneId || '').trim()),
+          customerId: String((row.customerId || row.beneId || '').trim()),
+          accountNo: String((row.accountNo || '').trim()),
           sortOrder: count + 1,
           active: true,
         });
@@ -83,7 +116,7 @@ export default function Employees() {
     if (!form.name.trim() || !form.salary) return;
     setSaving(true);
     try {
-      await saveEmployee({ ...form, salary: Number(form.salary) });
+      await saveEmployee({ ...form, salary: Number(form.salary), accountNo: String(form.accountNo || ''), customerId: String(form.customerId || form.beneId || ''), beneId: String(form.customerId || form.beneId || '') });
       await load();
       closeModal();
     } finally { setSaving(false); }
@@ -107,12 +140,12 @@ export default function Employees() {
             Show inactive
           </label>
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
-          <button
-            className="btn-secondary"
-            onClick={() => fileRef.current.click()}
-            disabled={importing}
-          >
+          <button className="btn-secondary" onClick={() => fileRef.current.click()} disabled={importing}>
             {importing ? '⏳ Importing…' : '📂 Import CSV'}
+          </button>
+          <input ref={custFileRef} type="file" accept=".csv" className="hidden" onChange={handleCustomerIdUpdate} />
+          <button className="btn-secondary" onClick={() => custFileRef.current.click()} disabled={importing} title="Upload CSV with name,customerId columns">
+            🔑 Update Customer IDs
           </button>
           <button className="btn-primary" onClick={openAdd}>+ Add Employee</button>
         </div>
@@ -131,7 +164,7 @@ export default function Employees() {
         {loading ? <p className="text-sm text-gray-500">Loading…</p> : (
           <table className="w-full text-sm min-w-[700px]">
             <thead><tr className="border-b">
-              {['S.No','Name','Designation','Monthly Salary','IFSC','Account No','Bene ID','Status',''].map(h => (
+              {['S.No','Name','Designation','Monthly Salary','IFSC','Account No','Customer ID','Status',''].map(h => (
                 <th key={h} className="th">{h}</th>
               ))}
             </tr></thead>
@@ -144,7 +177,7 @@ export default function Employees() {
                   <td className="td font-semibold text-green-700">{fmt(emp.salary)}</td>
                   <td className="td text-xs font-mono">{emp.ifsc || '—'}</td>
                   <td className="td text-xs font-mono">{emp.accountNo || '—'}</td>
-                  <td className="td text-xs font-mono">{emp.beneId || '—'}</td>
+                  <td className="td text-xs font-mono">{emp.customerId || emp.beneId || '—'}</td>
                   <td className="td">
                     <div className="flex flex-col gap-1">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium w-fit ${emp.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -200,11 +233,11 @@ export default function Employees() {
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 mb-1 block">Account Number</label>
-                  <input className="input font-mono" value={form.accountNo} onChange={e => setForm(f => ({...f, accountNo: e.target.value}))} placeholder="Bank account number" />
+                  <input className="input font-mono" value={form.accountNo} onChange={e => setForm(f => ({...f, accountNo: String(e.target.value)}))} placeholder="Bank account number" />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 mb-1 block">Bank Bene ID (CIB pre-registered)</label>
-                  <input className="input font-mono" value={form.beneId} onChange={e => setForm(f => ({...f, beneId: e.target.value}))} placeholder="e.g. 271214084" />
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Customer ID (Bank-generated / CIB Bene ID)</label>
+                  <input className="input font-mono" value={form.customerId || form.beneId || ''} onChange={e => setForm(f => ({...f, customerId: String(e.target.value), beneId: String(e.target.value)}))} placeholder="e.g. 271214084" />
                 </div>
                 <div className="col-span-2">
                   <label className="flex items-center gap-3 cursor-pointer bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
