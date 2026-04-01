@@ -116,7 +116,12 @@ export default function Advances() {
               {filtered.map((adv, i) => (
                 <tr key={adv.id} className="border-b hover:bg-orange-50">
                   <td className="td text-gray-400">{i + 1}</td>
-                  <td className="td font-medium">{empMap[adv.empId] || adv.empId}</td>
+                  <td className="td font-medium">
+                    {empMap[adv.empId] 
+                      ? empMap[adv.empId]
+                      : <span className="text-red-500 text-xs">⚠ {adv.empId.substring(0,8)}… (delete this)</span>
+                    }
+                  </td>
                   <td className="td font-bold text-orange-700">{fmt(adv.amount)}</td>
                   <td className="td text-gray-500">{adv.date || '—'}</td>
                   <td className="td">
@@ -134,7 +139,7 @@ export default function Advances() {
                   <td className="td">
                     <div className="flex gap-2">
                       {!adv.deducted && <button onClick={() => openEdit(adv)} className="text-xs text-blue-600 hover:underline">Edit</button>}
-                      {!adv.deducted && <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>}
+                      <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>
                     </div>
                   </td>
                 </tr>
