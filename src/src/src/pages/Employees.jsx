@@ -65,7 +65,7 @@ export default function Employees() {
   const handleImportCSV = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!window.confirm('This will DELETE all existing employees and reimport from CSV. Continue?')) {
+    if (!window.confirm('This will UPDATE existing employees and add new ones from CSV. Existing loans and advances will be preserved. Continue?')) {
       e.target.value = '';
       return;
     }
