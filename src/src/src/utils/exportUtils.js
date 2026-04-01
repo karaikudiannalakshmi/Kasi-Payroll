@@ -10,94 +10,72 @@ const DEBIT_ACCOUNT = '606905019773'; // organisation's bank account
  */
 export function exportBankUpload(rows, yearMonth, debitAccountOverride) {
   const ACCOUNT = debitAccountOverride || DEBIT_ACCOUNT;
-  // Build workbook using ExcelJS-compatible XLSX approach via SheetJS
+
   const wb = XLSX.utils.book_new();
 
-  // Header texts exactly matching bank template
+  // Header row
   const H_A = 'Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))';
   const H_B = 'Debit Account no\nShould be exactly 12 digit';
   const H_C = 'Amount (\u20B9)\n(Should not be more than 15 digits including decimals and paise)';
   const H_D = 'Bene ID\n(Should be pre-registered in CIB)';
   const H_E = 'Remarks\n(should not be more than 30 characters)';
 
-  // Build aoa (array of arrays) for precise control
-  const aoa = [[H_A, H_B, H_C, H_D, H_E]];
-  rows.forEach(r => {
-    aoa.push([
-      'NFT',
-      ACCOUNT,
-      r.netPay,                              // numeric amount
-      r.beneId ? String(r.beneId) : '',      // text bene id
-      (r.name || '').substring(0, 30),       // remarks max 30 chars
-    ]);
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths matching original template exactly
-  ws['!cols'] = [
-    { wch: 18 },          // A - transaction type
-    { wch: 21.4 },        // B - debit account
-    { wch: 14.9 },        // C - amount
-    { wch: 25 },          // D - bene ID
-    { wch: 23.3 },        // E - remarks
-  ];
-
-  // Row 1 height = 141 (tall header matching template)
-  ws['!rows'] = [{ hpt: 141 }];
-
-  // Apply cell styles using SheetJS cell objects
-  const thin = { style: 'thin', color: { auto: 1 } };
+  const ws = {};
+  const thin = { style: 'thin', color: { rgb: '000000' } };
   const border = { top: thin, bottom: thin, left: thin, right: thin };
 
-  const totalRows = aoa.length;
-  const cols = ['A', 'B', 'C', 'D', 'E'];
-
-  for (let r = 0; r < totalRows; r++) {
-    for (let c = 0; c < 5; c++) {
-      const addr = cols[c] + (r + 1);
-      if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-
-      const isHeader = r === 0;
-      const isAmountCol = c === 2;   // C - amount: numeric
-      const isBeneCol   = c === 3;   // D - bene ID: text, center
-      const isDebitCol  = c === 1;   // B - debit acct: text, center
-
-      // Set correct type - only amount column (C) is numeric, all others are TEXT
-      if (!isHeader) {
-        if (isAmountCol) {
-          ws[addr].t = 'n';  // numeric
-          ws[addr].z = '0';  // integer, no decimals
-        } else {
-          // Force text for A, B, D, E
-          const v = ws[addr].v;
-          ws[addr].t = 's';
-          ws[addr].v = String(v ?? '');
-        }
-      }
-
-      ws[addr].s = {
+  const setCell = (addr, value, isText, isCenter, isWrap) => {
+    ws[addr] = {
+      v: value,
+      t: isText ? 's' : (typeof value === 'number' ? 'n' : 's'),
+      z: isText ? '@' : (typeof value === 'number' ? '0' : '@'),
+      s: {
         border,
         alignment: {
-          wrapText: isHeader ? true : false,
-          horizontal: (isDebitCol || isAmountCol || isBeneCol) ? 'center' : 'left',
+          horizontal: isCenter ? 'center' : 'left',
           vertical: 'center',
+          wrapText: isWrap || false,
         },
         font: { name: 'Calibri', sz: 11 },
-      };
-    }
-  }
+      },
+    };
+  };
 
-  // Mark ranges for SheetJS
-  ws['!ref'] = 'A1:E' + totalRows;
+  // Header row (row 1) - all wrap text, tall row
+  setCell('A1', H_A, true, false, true);
+  setCell('B1', H_B, true, false, true);
+  setCell('C1', H_C, true, false, true);
+  setCell('D1', H_D, true, true,  true);
+  setCell('E1', H_E, true, false, true);
+
+  // Data rows
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    setCell(`A${row}`, 'NFT',                               true,  false, true);
+    setCell(`B${row}`, String(ACCOUNT),                     true,  true,  true);
+    setCell(`C${row}`, Number(r.netPay),                    false, true,  true);
+    setCell(`D${row}`, String(r.customerId || r.beneId || ''), true, true, true);
+    setCell(`E${row}`, String(r.name || '').substring(0, 30), true, false, true);
+  });
+
+  const totalRows = rows.length + 1;
+  ws['!ref'] = `A1:E${totalRows}`;
+
+  ws['!cols'] = [
+    { wch: 18 },
+    { wch: 21.43 },
+    { wch: 14.86 },
+    { wch: 25.0 },
+    { wch: 23.29 },
+  ];
+
+  ws['!rows'] = [{ hpt: 141 }]; // header row height = 141pt
 
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `BankUpload_${yearMonth}.xlsx`);
 }
 
-/**
- * Export full salary statement
- */
+
 export function exportSalaryStatement(rows, yearMonth) {
   const data = rows.map((r, i) => ({
     'S.No': i + 1,
