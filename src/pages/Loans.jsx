@@ -144,7 +144,7 @@ export default function Loans() {
                   : 100;
                 return (
                   <tr key={loan.id} className="border-b hover:bg-orange-50">
-                    <td className="td font-medium">{empMap[loan.empId] || loan.empId}</td>
+                    <td className="td font-medium">{empMap[loan.empId] || <span className="text-red-500 text-xs">⚠ Employee not found — please recreate</span>}</td>
                     <td className="td">{fmt(loan.principalAmount)}</td>
                     <td className="td text-orange-700 font-semibold">{fmt(loan.emi)}</td>
                     <td className="td">

@@ -4,7 +4,7 @@ import {
   getAdvances, getAllAdvancesForMonth, updateAdvance, getLoans, getLoanPayments, recordLoanPayment, saveSalaryRecord, getSalaryRecords,
 } from '../hooks/useFirebase';
 import { calcEmployeeSalary, calcNetPay, currentYM, monthLabel, fmt } from '../utils/calculations';
-import { exportBankUpload, exportSalaryStatement, exportPayslips } from '../utils/exportUtils';
+import { exportBankUpload, exportSalaryStatement, exportPayslips, exportMonthlyReport } from '../utils/exportUtils';
 
 export default function Salary() {
   const [yearMonth, setYearMonth] = useState(currentYM());
@@ -80,6 +80,25 @@ export default function Salary() {
 
       setData(rows);
     } finally { setLoading(false); }
+  };
+
+  const handleMonthlyExport = async () => {
+    const advances = await getAllAdvancesForMonth(yearMonth);
+    const loans    = await getLoans();
+    // Enrich with employee names
+    const empMap = {};
+    data.forEach(r => { empMap[r.id] = r.name; });
+    const advWithNames = advances.map(a => ({ ...a, empName: empMap[a.empId] || a.empId }));
+    const loansWithNames = loans
+      .filter(l => l.status === 'active' && l.startDate <= yearMonth)
+      .map(l => ({
+        ...l,
+        empName: empMap[l.empId] || l.empId,
+        openingBalance: l.balance,
+        emiDeducted: Math.min(l.emi, l.balance),
+        closingBalance: Math.max(0, l.balance - l.emi),
+      }));
+    exportMonthlyReport(data, advWithNames, loansWithNames, yearMonth);
   };
 
   const processSalary = async () => {
@@ -170,6 +189,9 @@ export default function Salary() {
           </button>
           <button onClick={() => exportPayslips(data, yearMonth)} className="btn-secondary">
             🧾 Export Payslips (Excel)
+          </button>
+          <button onClick={handleMonthlyExport} className="btn-secondary">
+            📦 Full Month Report
           </button>
           <button onClick={processSalary} disabled={saving} className="btn-primary">
             {saving ? 'Saving…' : '✅ Finalise & Save Salary'}

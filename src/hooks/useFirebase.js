@@ -1,7 +1,7 @@
 import { db } from '../firebase/config';
 import {
   collection, doc, getDocs, getDoc, setDoc, addDoc,
-  updateDoc, deleteDoc, query, where, orderBy, serverTimestamp,
+  updateDoc, deleteDoc, orderBy, query, serverTimestamp,
 } from 'firebase/firestore';
 
 // ── Employees ────────────────────────────────────────────────────────────────
@@ -10,9 +10,7 @@ export const employeesRef = () => collection(db, 'employees');
 export async function getEmployees() {
   const snap = await getDocs(query(employeesRef(), orderBy('sortOrder', 'asc')));
   const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (rows.length && rows[0].sortOrder == null) {
-    return rows.sort((a, b) => a.name.localeCompare(b.name));
-  }
+  if (rows.length && rows[0].sortOrder == null) return rows.sort((a, b) => a.name.localeCompare(b.name));
   return rows;
 }
 
@@ -22,7 +20,6 @@ export async function saveEmployee(emp) {
     await updateDoc(doc(db, 'employees', id), { ...rest, updatedAt: serverTimestamp() });
     return emp.id;
   } else {
-    // assign sortOrder = current count + 1 if not provided
     if (emp.sortOrder == null) {
       const snap = await getDocs(employeesRef());
       emp.sortOrder = snap.size + 1;
@@ -38,12 +35,10 @@ export async function toggleEmployee(id, active) {
 
 export async function deleteAllEmployees() {
   const snap = await getDocs(employeesRef());
-  const deletes = snap.docs.map(d => deleteDoc(doc(db, 'employees', d.id)));
-  await Promise.all(deletes);
+  await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'employees', d.id))));
 }
 
 // ── Attendance ────────────────────────────────────────────────────────────────
-// Path: attendance/{YYYY-MM}/employees/{empId}  → { hours: {"01":9,"02":0,...} }
 export async function getMonthAttendance(yearMonth) {
   const snap = await getDocs(collection(db, 'attendance', yearMonth, 'employees'));
   const map = {};
@@ -56,7 +51,6 @@ export async function saveEmployeeAttendance(yearMonth, empId, hours) {
 }
 
 // ── Holidays ─────────────────────────────────────────────────────────────────
-// Path: holidays/{YYYY-MM}  → { paid: ["01","15",...] }
 export async function getHolidays(yearMonth) {
   const snap = await getDoc(doc(db, 'holidays', yearMonth));
   return snap.exists() ? (snap.data().paid || []) : [];
@@ -69,19 +63,18 @@ export async function saveHolidays(yearMonth, paid) {
 // ── Advances ─────────────────────────────────────────────────────────────────
 export async function getAllAdvancesForMonth(yearMonth) {
   const snap = await getDocs(collection(db, 'advances'));
-  return snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
     .filter(a => a.deductMonth === yearMonth);
 }
 
 export async function getAdvances(filters = {}) {
-  let q = collection(db, 'advances');
-  const snap = await getDocs(q);
+  const snap = await getDocs(collection(db, 'advances'));
   let rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (filters.empId) rows = rows.filter(r => r.empId === filters.empId);
-  if (filters.deductMonth) rows = rows.filter(r => r.deductMonth === filters.deductMonth);
-  // Only skip deducted if NOT explicitly including them
-  if (filters.deductMonth && !filters.includeDeducted) rows = rows.filter(r => !r.deducted);
+  if (filters.deductMonth) {
+    rows = rows.filter(r => r.deductMonth === filters.deductMonth);
+    if (!filters.includeDeducted) rows = rows.filter(r => !r.deducted);
+  }
   return rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
@@ -106,11 +99,8 @@ export async function getLoans() {
 
 export async function addLoan(data) {
   return addDoc(collection(db, 'loans'), {
-    ...data,
-    paidInstallments: 0,
-    balance: data.principalAmount,
-    status: 'active',
-    createdAt: serverTimestamp(),
+    ...data, paidInstallments: 0, balance: data.principalAmount,
+    status: 'active', createdAt: serverTimestamp(),
   });
 }
 
@@ -127,11 +117,9 @@ export async function getLoanPayments(loanId) {
 export async function recordLoanPayment(loanId, month, amount, newBalance) {
   await setDoc(doc(db, 'loans', loanId, 'payments', month), { amount, balance: newBalance, month });
   const status = newBalance <= 0 ? 'closed' : 'active';
-  await updateDoc(doc(db, 'loans', loanId), {
-    paidInstallments: (await getLoans()).find(l => l.id === loanId)?.paidInstallments + 1 || 1,
-    balance: Math.max(0, newBalance),
-    status,
-  });
+  const loanSnap = await getDoc(doc(db, 'loans', loanId));
+  const paid = (loanSnap.data()?.paidInstallments || 0) + 1;
+  await updateDoc(doc(db, 'loans', loanId), { paidInstallments: paid, balance: Math.max(0, newBalance), status });
 }
 
 // ── Salary Records ────────────────────────────────────────────────────────────

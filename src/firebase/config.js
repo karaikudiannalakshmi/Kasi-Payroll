@@ -1,5 +1,3 @@
-// ─── REPLACE WITH YOUR FIREBASE PROJECT CONFIG ───────────────────────────────
-// Go to: Firebase Console → Project Settings → Your apps → Web → Config
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 

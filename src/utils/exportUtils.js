@@ -1,157 +1,174 @@
 import * as XLSX from 'xlsx';
 import { monthLabel } from './calculations';
 
-const DEBIT_ACCOUNT = '606905019773'; // organisation's bank account
+const DEBIT_ACCOUNT = '606905019773';
 
-/**
- * Generate Bank Upload Excel (NEFT format matching existing template)
- * @param {Array} rows - [{name, beneId, netPay}]
- * @param {string} yearMonth
- */
 export function exportBankUpload(rows, yearMonth, debitAccountOverride) {
   const ACCOUNT = debitAccountOverride || DEBIT_ACCOUNT;
-  // Build workbook using ExcelJS-compatible XLSX approach via SheetJS
   const wb = XLSX.utils.book_new();
 
-  // Header texts exactly matching bank template
   const H_A = 'Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))';
   const H_B = 'Debit Account no\nShould be exactly 12 digit';
   const H_C = 'Amount (\u20B9)\n(Should not be more than 15 digits including decimals and paise)';
   const H_D = 'Bene ID\n(Should be pre-registered in CIB)';
   const H_E = 'Remarks\n(should not be more than 30 characters)';
 
-  // Build aoa (array of arrays) for precise control
-  const aoa = [[H_A, H_B, H_C, H_D, H_E]];
-  rows.forEach(r => {
-    aoa.push([
-      'NFT',
-      ACCOUNT,
-      r.netPay,                              // numeric amount
-      r.beneId ? String(r.beneId) : '',      // text bene id
-      (r.name || '').substring(0, 30),       // remarks max 30 chars
-    ]);
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths matching original template exactly
-  ws['!cols'] = [
-    { wch: 18 },          // A - transaction type
-    { wch: 21.4 },        // B - debit account
-    { wch: 14.9 },        // C - amount
-    { wch: 25 },          // D - bene ID
-    { wch: 23.3 },        // E - remarks
-  ];
-
-  // Row 1 height = 141 (tall header matching template)
-  ws['!rows'] = [{ hpt: 141 }];
-
-  // Apply cell styles using SheetJS cell objects
-  const thin = { style: 'thin', color: { auto: 1 } };
+  const ws = {};
+  const thin   = { style: 'thin', color: { rgb: '000000' } };
   const border = { top: thin, bottom: thin, left: thin, right: thin };
 
-  const totalRows = aoa.length;
-  const cols = ['A', 'B', 'C', 'D', 'E'];
-
-  for (let r = 0; r < totalRows; r++) {
-    for (let c = 0; c < 5; c++) {
-      const addr = cols[c] + (r + 1);
-      if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-
-      const isHeader = r === 0;
-      const isAmountCol = c === 2;   // C - amount: numeric
-      const isBeneCol   = c === 3;   // D - bene ID: text, center
-      const isDebitCol  = c === 1;   // B - debit acct: text, center
-
-      // Set correct type - only amount column (C) is numeric, all others are TEXT
-      if (!isHeader) {
-        if (isAmountCol) {
-          ws[addr].t = 'n';  // numeric
-          ws[addr].z = '0';  // integer, no decimals
-        } else {
-          // Force text for A, B, D, E
-          const v = ws[addr].v;
-          ws[addr].t = 's';
-          ws[addr].v = String(v ?? '');
-        }
-      }
-
-      ws[addr].s = {
+  const setCell = (addr, value, isText, isCenter, isWrap) => {
+    ws[addr] = {
+      v: value,
+      t: isText ? 's' : (typeof value === 'number' ? 'n' : 's'),
+      z: isText ? '@' : (typeof value === 'number' ? '0' : '@'),
+      s: {
         border,
-        alignment: {
-          wrapText: isHeader ? true : false,
-          horizontal: (isDebitCol || isAmountCol || isBeneCol) ? 'center' : 'left',
-          vertical: 'center',
-        },
+        alignment: { horizontal: isCenter ? 'center' : 'left', vertical: 'center', wrapText: isWrap || false },
         font: { name: 'Calibri', sz: 11 },
-      };
-    }
-  }
+      },
+    };
+  };
 
-  // Mark ranges for SheetJS
-  ws['!ref'] = 'A1:E' + totalRows;
+  setCell('A1', H_A, true, false, true);
+  setCell('B1', H_B, true, false, true);
+  setCell('C1', H_C, true, false, true);
+  setCell('D1', H_D, true, true,  true);
+  setCell('E1', H_E, true, false, true);
+
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    setCell(`A${row}`, 'NFT',                                       true,  false, true);
+    setCell(`B${row}`, String(ACCOUNT),                              true,  true,  true);
+    setCell(`C${row}`, Number(r.netPay),                             false, true,  true);
+    setCell(`D${row}`, String(r.customerId || r.beneId || ''),       true,  true,  true);
+    setCell(`E${row}`, String(r.name || '').substring(0, 30),        true,  false, true);
+  });
+
+  ws['!ref']  = `A1:E${rows.length + 1}`;
+  ws['!cols'] = [{ wch: 18 }, { wch: 21.43 }, { wch: 14.86 }, { wch: 25.0 }, { wch: 23.29 }];
+  ws['!rows'] = [{ hpt: 141 }];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `BankUpload_${yearMonth}.xlsx`);
 }
 
 /**
- * Export full salary statement
+ * Comprehensive monthly export:
+ * Sheet1: Salary Statement
+ * Sheet2: Advances this month
+ * Sheet3: Loan EMIs this month
  */
-export function exportSalaryStatement(rows, yearMonth) {
-  const data = rows.map((r, i) => ({
+export function exportMonthlyReport(salaryRows, advances, loans, yearMonth) {
+  const label = monthLabel(yearMonth);
+  const wb    = XLSX.utils.book_new();
+  const thin  = { style: 'thin', color: { rgb: '000000' } };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+
+  // ── Sheet 1: Salary ───────────────────────────────────────────────────────
+  const salData = salaryRows.map((r, i) => ({
     'S.No': i + 1,
     'Name': r.name,
-    'Monthly Salary': r.monthlySalary,
+    'Monthly CTC': r.monthlySalary,
     'Effective Days': +r.effectiveDays.toFixed(2),
     'Total Hours': +r.totalEffectiveHours.toFixed(1),
-    'Daily Rate': +r.daily.toFixed(2),
     'Gross Salary': r.grossSalary,
     'Advance Deduction': r.advanceDeduction || 0,
     'Loan EMI': r.loanDeduction || 0,
     'Net Pay': r.netPay,
-    'Bank Bene ID': r.beneId || '',
+    'Customer ID': r.customerId || r.beneId || '',
   }));
-
-  const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [6,24,14,14,14,12,14,16,12,12,16].map(w => ({ wch: w }));
-
-  // Add total row
-  const totalRow = {
+  // Total row
+  salData.push({
     'S.No': '', 'Name': 'TOTAL',
+    'Monthly CTC': '', 'Effective Days': '', 'Total Hours': '',
+    'Gross Salary': salaryRows.reduce((s, r) => s + r.grossSalary, 0),
+    'Advance Deduction': salaryRows.reduce((s, r) => s + (r.advanceDeduction || 0), 0),
+    'Loan EMI': salaryRows.reduce((s, r) => s + (r.loanDeduction || 0), 0),
+    'Net Pay': salaryRows.reduce((s, r) => s + r.netPay, 0),
+    'Customer ID': '',
+  });
+
+  const ws1 = XLSX.utils.json_to_sheet(salData);
+  ws1['!cols'] = [6, 24, 13, 14, 12, 13, 17, 11, 11, 16].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws1, `Salary ${label}`);
+
+  // ── Sheet 2: Advances ─────────────────────────────────────────────────────
+  const advData = advances.map((a, i) => ({
+    'S.No': i + 1,
+    'Employee': a.empName || a.empId,
+    'Amount': a.amount,
+    'Date': a.date || '',
+    'Remarks': a.remarks || '',
+    'Status': a.deducted ? 'Deducted' : 'Pending',
+  }));
+  advData.push({
+    'S.No': '', 'Employee': 'TOTAL',
+    'Amount': advances.reduce((s, a) => s + Number(a.amount || 0), 0),
+    'Date': '', 'Remarks': '', 'Status': '',
+  });
+  const ws2 = XLSX.utils.json_to_sheet(advData);
+  ws2['!cols'] = [6, 24, 12, 12, 20, 10].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws2, `Advances ${label}`);
+
+  // ── Sheet 3: Loans ────────────────────────────────────────────────────────
+  const loanData = loans.map((l, i) => ({
+    'S.No': i + 1,
+    'Employee': l.empName || l.empId,
+    'Principal': l.principalAmount,
+    'EMI/Month': l.emi,
+    'Opening Balance': l.openingBalance || l.balance,
+    'EMI Deducted': l.emiDeducted || l.emi,
+    'Closing Balance': l.closingBalance || Math.max(0, l.balance - l.emi),
+    'Purpose': l.purpose || '',
+    'Status': l.status,
+  }));
+  const ws3 = XLSX.utils.json_to_sheet(loanData);
+  ws3['!cols'] = [6, 24, 12, 12, 16, 14, 15, 16, 10].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws3, `Loans ${label}`);
+
+  XLSX.writeFile(wb, `KasiKitchen_${yearMonth}_Report.xlsx`);
+}
+
+export function exportSalaryStatement(rows, yearMonth) {
+  const label = monthLabel(yearMonth);
+  const data = rows.map((r, i) => ({
+    'S.No': i + 1, 'Name': r.name,
+    'Monthly CTC': r.monthlySalary,
+    'Effective Days': +r.effectiveDays.toFixed(2),
+    'Total Hours': +r.totalEffectiveHours.toFixed(1),
+    'Gross Salary': r.grossSalary,
+    'Advance Deduction': r.advanceDeduction || 0,
+    'Loan EMI': r.loanDeduction || 0,
+    'Net Pay': r.netPay,
+    'Customer ID': r.customerId || r.beneId || '',
+  }));
+  data.push({
+    'S.No': '', 'Name': 'TOTAL', 'Monthly CTC': '', 'Effective Days': '', 'Total Hours': '',
     'Gross Salary': rows.reduce((s, r) => s + r.grossSalary, 0),
     'Advance Deduction': rows.reduce((s, r) => s + (r.advanceDeduction || 0), 0),
     'Loan EMI': rows.reduce((s, r) => s + (r.loanDeduction || 0), 0),
     'Net Pay': rows.reduce((s, r) => s + r.netPay, 0),
-  };
-  XLSX.utils.sheet_add_json(ws, [totalRow], { skipHeader: true, origin: -1 });
-
+    'Customer ID': '',
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [6, 24, 13, 14, 12, 13, 17, 11, 11, 16].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Salary Statement');
+  XLSX.utils.book_append_sheet(wb, ws, label);
   XLSX.writeFile(wb, `SalaryStatement_${yearMonth}.xlsx`);
 }
 
-/**
- * Export individual payslip data as Excel
- */
 export function exportPayslips(rows, yearMonth) {
   const label = monthLabel(yearMonth);
   const data = rows.map((r, i) => ({
-    'S.No': i + 1,
-    'Employee Name': r.name,
-    'Month': label,
-    'Monthly CTC': r.monthlySalary,
-    'Daily Rate (₹)': +r.daily.toFixed(2),
-    'Full Days': +r.effectiveDays.toFixed(2),
-    'Total Hours': +r.totalEffectiveHours.toFixed(1),
-    'Gross Salary': r.grossSalary,
-    'Advance Deduction': r.advanceDeduction || 0,
-    'Loan EMI Deduction': r.loanDeduction || 0,
-    'Net Salary Paid': r.netPay,
+    'S.No': i + 1, 'Employee': r.name, 'Month': label,
+    'Monthly CTC': r.monthlySalary, 'Daily Rate': +r.daily.toFixed(2),
+    'Effective Days': +r.effectiveDays.toFixed(2), 'Total Hours': +r.totalEffectiveHours.toFixed(1),
+    'Gross Salary': r.grossSalary, 'Advance Deduction': r.advanceDeduction || 0,
+    'Loan EMI': r.loanDeduction || 0, 'Net Salary': r.netPay,
   }));
-
   const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [6,24,16,14,16,12,12,14,16,18,16].map(w => ({ wch: w }));
+  ws['!cols'] = [6, 24, 16, 14, 12, 14, 12, 13, 17, 11, 12].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Payslips');
   XLSX.writeFile(wb, `Payslips_${yearMonth}.xlsx`);

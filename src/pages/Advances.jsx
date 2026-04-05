@@ -68,13 +68,7 @@ export default function Advances() {
 
   const totalAmount = filtered.reduce((s, a) => s + Number(a.amount || 0), 0);
 
-  // Summary per employee
-  const empSummary = {};
-  advances.forEach(a => {
-    const name = empMap[a.empId] || a.empId;
-    if (!empSummary[name]) empSummary[name] = 0;
-    empSummary[name] += Number(a.amount || 0);
-  });
+
 
   return (
     <div className="p-6 space-y-4">
@@ -116,7 +110,12 @@ export default function Advances() {
               {filtered.map((adv, i) => (
                 <tr key={adv.id} className="border-b hover:bg-orange-50">
                   <td className="td text-gray-400">{i + 1}</td>
-                  <td className="td font-medium">{empMap[adv.empId] || adv.empId}</td>
+                  <td className="td font-medium">
+                    {empMap[adv.empId] 
+                      ? empMap[adv.empId]
+                      : <span className="text-red-500 text-xs">⚠ {adv.empId.substring(0,8)}… (delete this)</span>
+                    }
+                  </td>
                   <td className="td font-bold text-orange-700">{fmt(adv.amount)}</td>
                   <td className="td text-gray-500">{adv.date || '—'}</td>
                   <td className="td">
@@ -134,7 +133,7 @@ export default function Advances() {
                   <td className="td">
                     <div className="flex gap-2">
                       {!adv.deducted && <button onClick={() => openEdit(adv)} className="text-xs text-blue-600 hover:underline">Edit</button>}
-                      {!adv.deducted && <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>}
+                      <button onClick={() => handleDelete(adv)} className="text-xs text-red-500 hover:underline">Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -147,22 +146,7 @@ export default function Advances() {
         )}
       </div>
 
-      {/* Per-Employee Summary */}
-      {Object.keys(empSummary).length > 0 && (
-        <div className="card">
-          <h2 className="font-semibold text-gray-700 mb-3 text-sm">📊 Total Advances per Employee (all time)</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {Object.entries(empSummary)
-              .sort((a, b) => b[1] - a[1])
-              .map(([name, total]) => (
-                <div key={name} className="bg-orange-50 rounded-lg px-3 py-2">
-                  <div className="text-xs text-gray-500 truncate">{name}</div>
-                  <div className="font-bold text-orange-700 text-sm">{fmt(total)}</div>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
+
 
       {/* Modal */}
       {modal && (
@@ -186,7 +170,11 @@ export default function Advances() {
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 mb-1 block">Date Given</label>
-                  <input className="input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                  <input className="input" type="date" value={form.date} onChange={e => {
+                    const d = e.target.value;
+                    const ym = d ? d.substring(0, 7) : form.deductMonth;
+                    setForm(f => ({ ...f, date: d, deductMonth: ym }));
+                  }} />
                 </div>
               </div>
               <div>
