@@ -82,11 +82,12 @@ export default function DailySheet() {
       {loading ? (
         <div className="text-sm text-gray-500 p-4">Loading…</div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
+        <div className="card p-0 overflow-hidden" style={{height:"calc(100vh - 220px)"}}>
+          <div className="overflow-auto h-full">
           <table className="text-xs border-collapse min-w-max">
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="bg-orange-50">
-                <th className="sticky left-0 bg-orange-50 px-3 py-2 text-left font-semibold text-gray-700 border-r border-orange-200 min-w-[160px] z-10">#  Name</th>
+                <th className="sticky left-0 bg-orange-50 px-3 py-2 text-left font-semibold text-gray-700 border-r border-orange-200 min-w-[160px] z-30">#  Name</th>
                 <th className="px-2 py-1 text-right font-semibold text-gray-600 border-r border-gray-200 min-w-[60px]">CTC</th>
                 {days.map(d => {
                   const dn = getDayName(d);
@@ -153,6 +154,7 @@ export default function DailySheet() {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
