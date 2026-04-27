@@ -17,8 +17,8 @@ const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const fbAuth = getAuth(app);
 
 const USERS = {
-  admin:    { password: 'Andavar@07',  role: 'admin' },
-  operator: { password: 'Kvkfvns@07', role: 'operator' },
+  admin:    { password: import.meta.env.VITE_ADMIN_PASSWORD,    role: 'admin' },
+  operator: { password: import.meta.env.VITE_OPERATOR_PASSWORD, role: 'operator' },
 };
 
 export function AuthProvider({ children }) {
