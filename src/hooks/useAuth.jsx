@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInAnonymously, signOut } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 
 const AuthContext = createContext(null);
 
@@ -16,54 +16,50 @@ const firebaseConfig = {
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const fbAuth = getAuth(app);
 
-const USERS = {
-  admin:    { password: import.meta.env.VITE_ADMIN_PASSWORD,    role: 'admin' },
-  operator: { password: import.meta.env.VITE_OPERATOR_PASSWORD, role: 'operator' },
+// Role assignment by email — add new emails here to grant access
+const ROLE_MAP = {
+  'slnaiyar@gmail.com':    'admin',
+  'kvkfvns@gmail.com':     'operator',
 };
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem('kasi_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
+  const [user, setUser]       = useState(null);
+  const [role, setRole]       = useState(null);
+  const [loading, setLoading] = useState(true); // true while Firebase checks auth state
 
-  // Re-authenticate anonymously on page reload if session exists
+  // Listen for Firebase auth state — handles page reload automatically
   useEffect(() => {
-    const saved = sessionStorage.getItem('kasi_user');
-    if (saved && !fbAuth.currentUser) {
-      signInAnonymously(fbAuth).catch(e => console.error('Re-auth failed:', e));
-    }
+    return onAuthStateChanged(fbAuth, (firebaseUser) => {
+      if (firebaseUser) {
+        const email = firebaseUser.email?.toLowerCase() || '';
+        const assignedRole = ROLE_MAP[email] || 'operator';
+        setUser({ email, uid: firebaseUser.uid });
+        setRole(assignedRole);
+      } else {
+        setUser(null);
+        setRole(null);
+      }
+      setLoading(false);
+    });
   }, []);
 
-  const login = async (username, password) => {
-    const u = USERS[username.trim().toLowerCase()];
-    if (!u || u.password !== password) throw new Error('Invalid username or password');
-    try {
-      if (!fbAuth.currentUser) await signInAnonymously(fbAuth);
-    } catch (e) {
-      console.error('Firebase anon auth failed:', e);
-    }
-    const userData = { username: username.trim().toLowerCase(), role: u.role };
-    sessionStorage.setItem('kasi_user', JSON.stringify(userData));
-    setUser(userData);
+  const login = async (email, password) => {
+    await signInWithEmailAndPassword(fbAuth, email.trim().toLowerCase(), password);
+    // onAuthStateChanged above will update user/role automatically
   };
 
   const logout = async () => {
     try { await signOut(fbAuth); } catch (e) { console.error('SignOut error:', e); }
-    sessionStorage.removeItem('kasi_user');
-    setUser(null);
   };
 
   return (
     <AuthContext.Provider value={{
       user,
-      role: user?.role || null,
-      isAdmin: user?.role === 'admin',
+      role,
+      isAdmin: role === 'admin',
       login,
       logout,
-      loading: false,
+      loading,
     }}>
       {children}
     </AuthContext.Provider>
