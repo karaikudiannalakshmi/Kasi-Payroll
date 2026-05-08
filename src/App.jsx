@@ -11,14 +11,28 @@ import Advances   from './pages/Advances';
 import Loans      from './pages/Loans';
 
 function RequireAuth({ children, adminOnly = false }) {
-  const { user, role } = useAuth();
+  const { user, role, loading } = useAuth();
+
+  // Wait for Firebase onAuthStateChanged to resolve before redirecting
+  if (loading) return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16,background:'#7c2d12'}}>
+      <div style={{width:36,height:36,border:'3px solid rgba(255,255,255,0.2)',borderTop:'3px solid #fb923c',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+      <div style={{color:'rgba(255,255,255,0.5)',fontSize:13,fontFamily:'sans-serif'}}>Loading…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && role !== 'admin') return <Navigate to="/attendance" replace />;
   return children;
 }
 
 function AppRoutes() {
-  const { user, role } = useAuth();
+  const { user, role, loading } = useAuth();
+
+  // Don't redirect until Firebase has resolved auth state
+  if (loading) return null;
+
   const home = role === 'admin' ? '/dashboard' : '/attendance';
 
   return (
