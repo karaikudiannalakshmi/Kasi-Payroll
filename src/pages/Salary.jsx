@@ -104,32 +104,47 @@ export default function Salary() {
   const processSalary = async () => {
     if (!window.confirm(`Finalise salary for ${monthLabel(yearMonth)}? This saves all records.`)) return;
     setSaving(true);
-    for (const row of data) {
-      await saveSalaryRecord(yearMonth, row.id, {
-        grossSalary: row.grossSalary,
-        totalEffectiveHours: row.totalEffectiveHours,
-        effectiveDays: row.effectiveDays,
-        advanceDeduction: row.advanceDeduction,
-        loanDeduction: row.loanDeduction,
-        netPay: row.netPay,
-      });
-      // Auto-mark advance records as deducted
-      if (row.advanceDeduction > 0 && row._advanceIds?.length) {
-        for (const advId of row._advanceIds) {
-          await updateAdvance(advId, { deducted: true, deductedMonth: yearMonth });
+    const loanErrors = [];
+    try {
+      for (const row of data) {
+        await saveSalaryRecord(yearMonth, row.id, {
+          grossSalary: row.grossSalary,
+          totalEffectiveHours: row.totalEffectiveHours,
+          effectiveDays: row.effectiveDays,
+          advanceDeduction: row.advanceDeduction,
+          loanDeduction: row.loanDeduction,
+          netPay: row.netPay,
+        });
+        // Auto-mark advance records as deducted
+        if (row.advanceDeduction > 0 && row._advanceIds?.length) {
+          for (const advId of row._advanceIds) {
+            await updateAdvance(advId, { deducted: true, deductedMonth: yearMonth });
+          }
+        }
+        // Auto-record loan EMI payments and update balances
+        if (row.loanDeduction > 0 && row._activeLoans?.length) {
+          for (const loan of row._activeLoans) {
+            try {
+              const newBalance = Math.max(0, loan.balance - loan.emi);
+              await recordLoanPayment(loan.id, yearMonth, loan.emi, newBalance);
+            } catch (loanErr) {
+              loanErrors.push(`${row.name}: ${loanErr.message}`);
+            }
+          }
         }
       }
-      // Auto-record loan EMI payments and update balances
-      if (row.loanDeduction > 0 && row._activeLoans) {
-        for (const loan of row._activeLoans) {
-          const newBalance = Math.max(0, loan.balance - loan.emi);
-          await recordLoanPayment(loan.id, yearMonth, loan.emi, newBalance);
-        }
-      }
+    } catch (err) {
+      setSaving(false);
+      alert(`\u26a0 Salary save failed: ${err.message}`);
+      return;
     }
     setSaving(false);
     await calculate();
-    alert('Salary records saved! Loan EMIs auto-recorded.');
+    if (loanErrors.length) {
+      alert(`Salary saved \u2705\n\nBut these loan updates failed — use "Record EMI" on the Loans page to fix:\n${loanErrors.join('\n')}`);
+    } else {
+      alert('Salary records saved! Loan EMIs auto-recorded. \u2705');
+    }
   };
 
   useEffect(() => { calculate(); }, [yearMonth]);
