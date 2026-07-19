@@ -115,11 +115,24 @@ export async function getLoanPayments(loanId) {
 }
 
 export async function recordLoanPayment(loanId, month, amount, newBalance) {
-  await setDoc(doc(db, 'loans', loanId, 'payments', month), { amount, balance: newBalance, month });
+  const paymentRef = doc(db, 'loans', loanId, 'payments', month);
+  const existing = await getDoc(paymentRef);
+  const isNew = !existing.exists();
+
+  // Write / overwrite the payment document
+  await setDoc(paymentRef, { amount, balance: newBalance, month });
+
   const status = newBalance <= 0 ? 'closed' : 'active';
-  const loanSnap = await getDoc(doc(db, 'loans', loanId));
-  const paid = (loanSnap.data()?.paidInstallments || 0) + 1;
-  await updateDoc(doc(db, 'loans', loanId), { paidInstallments: paid, balance: Math.max(0, newBalance), status });
+
+  if (isNew) {
+    // New payment: increment paidInstallments
+    const loanSnap = await getDoc(doc(db, 'loans', loanId));
+    const paid = (loanSnap.data()?.paidInstallments || 0) + 1;
+    await updateDoc(doc(db, 'loans', loanId), { paidInstallments: paid, balance: Math.max(0, newBalance), status });
+  } else {
+    // Re-recording same month: just update balance and status (don't double-count)
+    await updateDoc(doc(db, 'loans', loanId), { balance: Math.max(0, newBalance), status });
+  }
 }
 
 // ── Salary Records ────────────────────────────────────────────────────────────
