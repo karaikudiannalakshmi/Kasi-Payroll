@@ -76,8 +76,27 @@ export default function Employees() {
     }
     setImporting(true); setImportResult(null);
     try {
-      const text    = await file.text();
-      const rows    = parseCSV(text);
+      let rows;
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+      if (isExcel) {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { raw: false });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        rows = data.map(r => ({
+          name:          String(r.name || '').trim(),
+          designation:   String(r.designation || '').trim(),
+          salary:        r.salary,
+          ifsc:          String(r.ifsc || '').trim(),
+          accountNo:     String(r.accountNo || '').trim(),
+          beneId:        String(r.beneId || '').trim(),
+          customerId:    String(r.customerId || r.beneId || '').trim(),
+          fullPayAlways: r.fullPayAlways === true || r.fullPayAlways === 'true',
+        })).filter(r => r.name);
+      } else {
+        const text = await file.text();
+        rows = parseCSV(text);
+      }
       if (!rows.length) { setImportResult({ success: false, error: 'No valid rows found.' }); return; }
 
       const existing = await getEmployees();
