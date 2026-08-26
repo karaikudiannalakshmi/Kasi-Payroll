@@ -1,69 +1,25 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
-
+import { createContext, useContext, useState } from 'react';
 const AuthContext = createContext(null);
-
-// Firebase Auth instance (reuse existing app if already initialized)
-const firebaseConfig = {
-  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+const USERS = {
+  admin:    { password: 'Andavar@07',  role: 'admin' },
+  operator: { password: 'Kvkfvns@07', role: 'operator' },
 };
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const fbAuth = getAuth(app);
-
-// Role assignment by email — add new emails here to grant access
-const ROLE_MAP = {
-  'slnaiyar@gmail.com':    'admin',
-  'kvkfvns@gmail.com':     'operator',
-};
-
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null);
-  const [role, setRole]       = useState(null);
-  const [loading, setLoading] = useState(true); // true while Firebase checks auth state
-
-  // Listen for Firebase auth state — handles page reload automatically
-  useEffect(() => {
-    return onAuthStateChanged(fbAuth, (firebaseUser) => {
-      if (firebaseUser) {
-        const email = firebaseUser.email?.toLowerCase() || '';
-        const assignedRole = ROLE_MAP[email] || 'operator';
-        setUser({ email, uid: firebaseUser.uid });
-        setRole(assignedRole);
-      } else {
-        setUser(null);
-        setRole(null);
-      }
-      setLoading(false);
-    });
-  }, []);
-
-  const login = async (email, password) => {
-    await signInWithEmailAndPassword(fbAuth, email.trim().toLowerCase(), password);
-    // onAuthStateChanged above will update user/role automatically
+  const [user, setUser] = useState(() => {
+    try { const s = sessionStorage.getItem('kasi_user'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const login = (username, password) => {
+    const u = USERS[username.trim().toLowerCase()];
+    if (!u || u.password !== password) throw new Error('Invalid username or password');
+    const userData = { username: username.trim().toLowerCase(), role: u.role };
+    sessionStorage.setItem('kasi_user', JSON.stringify(userData));
+    setUser(userData);
   };
-
-  const logout = async () => {
-    try { await signOut(fbAuth); } catch (e) { console.error('SignOut error:', e); }
-  };
-
+  const logout = () => { sessionStorage.removeItem('kasi_user'); setUser(null); };
   return (
-    <AuthContext.Provider value={{
-      user,
-      role,
-      isAdmin: role === 'admin',
-      login,
-      logout,
-      loading,
-    }}>
+    <AuthContext.Provider value={{ user, role: user?.role||null, isAdmin: user?.role==='admin', login, logout, loading: false }}>
       {children}
     </AuthContext.Provider>
   );
 }
-
 export const useAuth = () => useContext(AuthContext);
