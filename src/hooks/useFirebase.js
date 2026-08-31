@@ -1,6 +1,7 @@
 import { db } from '../firebase/config';
 import { collection, doc, getDocs, getDoc, setDoc, addDoc, updateDoc, deleteDoc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 
+// ── Employees ────────────────────────────────────────────────────────────────
 export const employeesRef = () => collection(db, 'employees');
 export async function getEmployees() {
   const snap = await getDocs(query(employeesRef(), orderBy('sortOrder','asc')));
@@ -9,8 +10,11 @@ export async function getEmployees() {
   return rows;
 }
 export async function saveEmployee(emp) {
-  if (emp.id) { const { id, ...rest } = emp; await updateDoc(doc(db,'employees',id), {...rest, updatedAt: serverTimestamp()}); return emp.id; }
-  else {
+  if (emp.id) {
+    const { id, ...rest } = emp;
+    await updateDoc(doc(db,'employees',id), {...rest, updatedAt: serverTimestamp()});
+    return emp.id;
+  } else {
     if (emp.sortOrder == null) { const s = await getDocs(employeesRef()); emp.sortOrder = s.size+1; }
     const ref = await addDoc(employeesRef(), {...emp, active:true, createdAt: serverTimestamp()});
     return ref.id;
@@ -18,6 +22,7 @@ export async function saveEmployee(emp) {
 }
 export async function toggleEmployee(id, active) { await updateDoc(doc(db,'employees',id), { active }); }
 
+// ── Attendance (OLD: hour-based) ──────────────────────────────────────────────
 export async function getMonthAttendance(ym) {
   const snap = await getDocs(collection(db,'attendance',ym,'employees'));
   const map = {}; snap.docs.forEach(d => { map[d.id] = d.data().hours||{}; }); return map;
@@ -25,12 +30,27 @@ export async function getMonthAttendance(ym) {
 export async function saveEmployeeAttendance(ym, empId, hours) {
   await setDoc(doc(db,'attendance',ym,'employees',empId), { hours });
 }
+
+// ── Attendance (NEW: tick + OT + Permission) ──────────────────────────────────
+export async function getNewMonthAttendance(ym) {
+  const snap = await getDocs(collection(db,'attendance_new',ym,'employees'));
+  const map = {};
+  snap.docs.forEach(d => { map[d.id] = d.data(); });
+  return map;
+}
+export async function saveNewEmployeeAttendance(ym, empId, data) {
+  // data = { ticks: {"01":true,...}, otHours: 2, permHours: 1 }
+  await setDoc(doc(db,'attendance_new',ym,'employees',empId), data);
+}
+
+// ── Holidays ─────────────────────────────────────────────────────────────────
 export async function getHolidays(ym) {
   const snap = await getDoc(doc(db,'holidays',ym));
   return snap.exists() ? (snap.data().paid||[]) : [];
 }
 export async function saveHolidays(ym, paid) { await setDoc(doc(db,'holidays',ym), { paid }); }
 
+// ── Advances ─────────────────────────────────────────────────────────────────
 export async function getAllAdvancesForMonth(ym) {
   const snap = await getDocs(collection(db,'advances'));
   return snap.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.deductMonth===ym);
@@ -39,13 +59,17 @@ export async function getAdvances(filters={}) {
   const snap = await getDocs(collection(db,'advances'));
   let rows = snap.docs.map(d=>({id:d.id,...d.data()}));
   if (filters.empId) rows = rows.filter(r=>r.empId===filters.empId);
-  if (filters.deductMonth) { rows = rows.filter(r=>r.deductMonth===filters.deductMonth); if (!filters.includeDeducted) rows = rows.filter(r=>!r.deducted); }
+  if (filters.deductMonth) {
+    rows = rows.filter(r=>r.deductMonth===filters.deductMonth);
+    if (!filters.includeDeducted) rows = rows.filter(r=>!r.deducted);
+  }
   return rows.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 }
 export async function addAdvance(data) { return addDoc(collection(db,'advances'),{...data, createdAt:serverTimestamp()}); }
 export async function updateAdvance(id, data) { return updateDoc(doc(db,'advances',id), data); }
 export async function deleteAdvance(id) { return deleteDoc(doc(db,'advances',id)); }
 
+// ── Loans ─────────────────────────────────────────────────────────────────────
 export async function getLoans() {
   const snap = await getDocs(collection(db,'loans'));
   return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.startDate||'').localeCompare(a.startDate||''));
@@ -59,12 +83,14 @@ export async function getLoanPayments(loanId) {
   return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.month||'').localeCompare(b.month||''));
 }
 export async function recordLoanPayment(loanId, month, amount, newBalance) {
-  await setDoc(doc(db,'loans',loanId,'payments',month), {amount,balance:newBalance,month});
+  await setDoc(doc(db,'loans',loanId,'payments',month), {amount, balance:newBalance, month});
   const status = newBalance<=0?'closed':'active';
-  const lsnap = await getDoc(doc(db,'loans',loanId));
-  const paid = (lsnap.data()?.paidInstallments||0)+1;
+  const lsnap  = await getDoc(doc(db,'loans',loanId));
+  const paid   = (lsnap.data()?.paidInstallments||0)+1;
   await updateDoc(doc(db,'loans',loanId), {paidInstallments:paid, balance:Math.max(0,newBalance), status});
 }
+
+// ── Salary Records ────────────────────────────────────────────────────────────
 export async function getSalaryRecords(ym) {
   const snap = await getDocs(collection(db,'salaries',ym,'employees'));
   const map = {}; snap.docs.forEach(d=>{ map[d.id]=d.data(); }); return map;
