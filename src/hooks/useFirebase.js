@@ -1,6 +1,10 @@
 import { db } from '../firebase/config';
 import { collection, doc, getDocs, getDoc, setDoc, addDoc, updateDoc, deleteDoc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 
+// New tick-based system starts from September 2026
+const NEW_SYSTEM_FROM = '2026-09';
+const isNewSys = ym => ym >= NEW_SYSTEM_FROM;
+
 // ── Employees ────────────────────────────────────────────────────────────────
 export const employeesRef = () => collection(db, 'employees');
 export async function getEmployees() {
@@ -21,9 +25,25 @@ export async function saveEmployee(emp) {
   }
 }
 export async function toggleEmployee(id, active) { await updateDoc(doc(db,'employees',id), { active }); }
+export async function deleteAllEmployees() {
+  const snap = await getDocs(employeesRef());
+  await Promise.all(snap.docs.map(d => deleteDoc(doc(db,'employees',d.id))));
+}
 
-// ── Attendance (OLD: hour-based) ──────────────────────────────────────────────
+// ── Attendance (OLD: hour-based, pre-Sep 2026) ────────────────────────────────
 export async function getMonthAttendance(ym) {
+  if (isNewSys(ym)) {
+    // Route to new collection; also compute otHours/permHours totals for salary
+    const snap = await getDocs(collection(db,'attendance_new',ym,'employees'));
+    const map = {};
+    snap.docs.forEach(d => {
+      const data = d.data();
+      const otHours   = Object.values(data.ot   || {}).reduce((s,v) => s + Number(v||0), 0);
+      const permHours = Object.values(data.perm  || {}).reduce((s,v) => s + Number(v||0), 0);
+      map[d.id] = { ...data, otHours, permHours };
+    });
+    return map;
+  }
   const snap = await getDocs(collection(db,'attendance',ym,'employees'));
   const map = {}; snap.docs.forEach(d => { map[d.id] = d.data().hours||{}; }); return map;
 }
@@ -31,7 +51,7 @@ export async function saveEmployeeAttendance(ym, empId, hours) {
   await setDoc(doc(db,'attendance',ym,'employees',empId), { hours });
 }
 
-// ── Attendance (NEW: tick + OT + Permission) ──────────────────────────────────
+// ── Attendance (NEW: tick + OT + Permission, Sep 2026+) ──────────────────────
 export async function getNewMonthAttendance(ym) {
   const snap = await getDocs(collection(db,'attendance_new',ym,'employees'));
   const map = {};
@@ -39,7 +59,6 @@ export async function getNewMonthAttendance(ym) {
   return map;
 }
 export async function saveNewEmployeeAttendance(ym, empId, data) {
-  // data = { ticks: {"01":true,...}, otHours: 2, permHours: 1 }
   await setDoc(doc(db,'attendance_new',ym,'employees',empId), data);
 }
 
@@ -83,11 +102,21 @@ export async function getLoanPayments(loanId) {
   return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.month||'').localeCompare(b.month||''));
 }
 export async function recordLoanPayment(loanId, month, amount, newBalance) {
-  await setDoc(doc(db,'loans',loanId,'payments',month), {amount, balance:newBalance, month});
-  const status = newBalance<=0?'closed':'active';
-  const lsnap  = await getDoc(doc(db,'loans',loanId));
-  const paid   = (lsnap.data()?.paidInstallments||0)+1;
-  await updateDoc(doc(db,'loans',loanId), {paidInstallments:paid, balance:Math.max(0,newBalance), status});
+  const paymentRef = doc(db,'loans',loanId,'payments',month);
+  const existing   = await getDoc(paymentRef);
+  const isNew      = !existing.exists();
+  // Write / overwrite the payment document
+  await setDoc(paymentRef, {amount, balance:newBalance, month});
+  const status = newBalance<=0 ? 'closed' : 'active';
+  if (isNew) {
+    // New payment: increment paidInstallments
+    const lsnap = await getDoc(doc(db,'loans',loanId));
+    const paid  = (lsnap.data()?.paidInstallments||0)+1;
+    await updateDoc(doc(db,'loans',loanId), {paidInstallments:paid, balance:Math.max(0,newBalance), status});
+  } else {
+    // Re-recording same month: just update balance and status, don't double-count
+    await updateDoc(doc(db,'loans',loanId), {balance:Math.max(0,newBalance), status});
+  }
 }
 
 // ── Salary Records ────────────────────────────────────────────────────────────
