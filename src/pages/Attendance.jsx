@@ -147,6 +147,23 @@ export default function Attendance() {
     }
   };
 
+  // ── Day totals (how many employees present on each day) ───────────────────
+  const getDayStats = (d) => {
+    const isHol = holidays.includes(d);
+    let present = 0, ot = 0, perm = 0;
+    employees.forEach(emp => {
+      const data = attendance[emp.id];
+      if (newSys) {
+        if (isHol || data?.ticks?.[d] === true) present++;
+        ot   += Number(data?.ot?.[d]   || 0);
+        perm += Number(data?.perm?.[d] || 0);
+      } else {
+        if (isHol || Number(data?.[d] || 0) > 0) present++;
+      }
+    });
+    return { present, ot, perm };
+  };
+
   // ── Import ────────────────────────────────────────────────────────────────
   const handleAttImport = async (e) => {
     const file = e.target.files[0];
@@ -420,6 +437,38 @@ export default function Attendance() {
                   );
                 })}
               </tbody>
+
+              {/* Day totals: employees present each day */}
+              <tfoot className="sticky bottom-0 z-20">
+                <tr className="bg-orange-100 border-t-2 border-orange-300 font-bold">
+                  <td className="sticky left-0 bg-orange-100 px-3 py-1.5 text-gray-800 border-r border-orange-200 z-30">
+                    Total Present
+                    <div className="text-[9px] font-normal text-gray-500">of {employees.length} employees</div>
+                  </td>
+                  {days.map(d => {
+                    const s = getDayStats(d);
+                    const isHol = holidays.includes(d);
+                    return newSys ? (
+                      <React.Fragment key={d}>
+                        <td className={`px-0 py-1 text-center border-r border-gray-200 text-green-800 ${isHol ? 'bg-blue-100' : ''}`}>
+                          {s.present}
+                        </td>
+                        <td className="px-0 py-1 text-center border-r border-gray-200 text-[10px] text-blue-700">
+                          {s.ot > 0 ? s.ot : ''}
+                        </td>
+                        <td className="px-0 py-1 text-center border-r border-gray-200 text-[10px] text-amber-700">
+                          {s.perm > 0 ? s.perm : ''}
+                        </td>
+                      </React.Fragment>
+                    ) : (
+                      <td key={d} className={`px-0.5 py-1 text-center border-r border-gray-200 text-green-800 ${isHol ? 'bg-blue-100' : ''}`}>
+                        {s.present}
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-1 border-r border-gray-200" colSpan={2}></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
